@@ -97,6 +97,7 @@ def login():
     if 'user_id' in session:
         return redirect(url_for('camera'))
     
+    error = None
     if request.method == 'POST':
         username = sanitize_input(request.form.get('username'))
         password = request.form.get('password', '')
@@ -105,15 +106,11 @@ def login():
         
         if not user:
             log_action('login_attempt', username, False, 'User not found')
-            flash('Invalid credentials', 'error')
-            return redirect(url_for('login'))
-        
-        if is_account_locked(user):
+            error = 'Invalid credentials'
+        elif is_account_locked(user):
             log_action('login_attempt', username, False, 'Account locked')
-            flash('Account temporarily locked. Try again later.', 'error')
-            return redirect(url_for('login'))
-        
-        if check_password_hash(user.password_hash, password):
+            error = 'Account temporarily locked. Try again later.'
+        elif check_password_hash(user.password_hash, password):
             user.failed_attempts = 0
             user.locked_until = None
             db.session.commit()
@@ -129,14 +126,13 @@ def login():
             if user.failed_attempts >= 5:
                 user.locked_until = datetime.utcnow() + timedelta(minutes=15)
                 log_action('login_attempt', username, False, 'Account locked after 5 failed attempts')
-                flash('Too many failed attempts. Account locked for 15 minutes.', 'error')
+                error = 'Too many failed attempts. Account locked for 15 minutes.'
             else:
                 log_action('login_attempt', username, False, f'Failed attempt {user.failed_attempts}/5')
-                flash('Invalid credentials', 'error')
+                error = 'Invalid credentials'
             db.session.commit()
-            return redirect(url_for('login'))
     
-    return render_template('login.html')
+    return render_template('login.html', error=error)
 
 @app.route('/camera')
 def camera():
