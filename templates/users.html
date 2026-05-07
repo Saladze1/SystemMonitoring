@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>System Monitoring - User Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px 20px;
+            border-bottom: 2px solid #00aaff;
+        }
+        h1 {
+            color: #00aaff;
+            margin: 0;
+        }
+        .nav a {
+            color: #00aaff;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .add-user {
+            background: #16213e;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .add-user h3 {
+            color: #00aaff;
+            margin-top: 0;
+        }
+        input, select {
+            padding: 10px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            background: #0f3460;
+            color: #fff;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background: #00aaff;
+            color: #fff;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0088cc;
+        }
+        .delete-btn {
+            background: #ff4444;
+        }
+        .delete-btn:hover {
+            background: #cc0000;
+        }
+        .unlock-btn {
+            background: #00ff88;
+            color: #1a1a2e;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #0f3460;
+        }
+        th {
+            background: #0f3460;
+            color: #00aaff;
+        }
+        tr:hover {
+            background: #16213e;
+        }
+        .role-admin {
+            color: #ffaa00;
+            font-weight: bold;
+        }
+        .role-viewer {
+            color: #00aaff;
+        }
+        .locked {
+            color: #ff4444;
+            font-weight: bold;
+        }
+        .active {
+            color: #00ff88;
+        }
+        .password-hidden {
+            color: #666;
+            font-style: italic;
+        }
+        .flash {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .flash.error {
+            background: #ff4444;
+        }
+        .flash.success {
+            background: #00ff88;
+            color: #1a1a2e;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>👥 User Management</h1>
+        <div class="nav">
+            <a href="/logs">View Logs</a>
+            <a href="/camera">Back to Camera</a>
+            <a href="/logout">Logout</a>
+        </div>
+    </div>
+    
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <div class="add-user">
+            <h3>Add New User</h3>
+            <form method="POST" action="/users/add">
+                <input type="text" name="username" placeholder="Username" required autocomplete="off">
+                <input type="password" name="password" placeholder="Password" required>
+                <select name="role">
+                    <option value="viewer">Viewer</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button type="submit">Add User</button>
+            </form>
+        </div>
+        
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Password</th>
+                <th>Status</th>
+                <th>Failed Attempts</th>
+                <th>Actions</th>
+            </tr>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.username }}</td>
+                <td class="role-{{ user.role }}">{{ user.role.upper() }}</td>
+                <td class="password-hidden">[HASHED]</td>
+                <td class="{% if user.locked_until and user.locked_until > now %}locked{% else %}active{% endif %}">
+                    {% if user.locked_until and user.locked_until > now %}🔒 LOCKED{% else %}✓ Active{% endif %}
+                </td>
+                <td>{{ user.failed_attempts }}/5</td>
+                <td>
+                    {% if user.username != 'admin' and user.id != session.user_id %}
+                        <form method="POST" action="/users/delete/{{ user.id }}" style="display:inline;">
+                            <button type="submit" class="delete-btn" onclick="return confirm('Delete {{ user.username }}?')">Delete</button>
+                        </form>
+                    {% endif %}
+                    
+                    {% if user.locked_until and user.locked_until > now %}
+                        <form method="POST" action="/users/unlock/{{ user.id }}" style="display:inline;">
+                            <button type="submit" class="unlock-btn">Unlock</button>
+                        </form>
+                    {% endif %}
+                    
+                    <form method="POST" action="/users/reset-password/{{ user.id }}" style="display:inline;">
+                        <input type="password" name="new_password" placeholder="New password" required style="width:120px;">
+                        <button type="submit">Reset</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>
