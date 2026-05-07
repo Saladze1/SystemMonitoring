@@ -97,7 +97,6 @@ def login():
     if 'user_id' in session:
         return redirect(url_for('camera'))
     
-    error = None
     if request.method == 'POST':
         username = sanitize_input(request.form.get('username'))
         password = request.form.get('password', '')
@@ -106,10 +105,10 @@ def login():
         
         if not user:
             log_action('login_attempt', username, False, 'User not found')
-            error = 'Invalid credentials'
+            flash('Invalid credentials', 'error')
         elif is_account_locked(user):
             log_action('login_attempt', username, False, 'Account locked')
-            error = 'Account temporarily locked. Try again later.'
+            flash('Account temporarily locked. Try again later.', 'error')
         elif check_password_hash(user.password_hash, password):
             user.failed_attempts = 0
             user.locked_until = None
@@ -126,13 +125,15 @@ def login():
             if user.failed_attempts >= 5:
                 user.locked_until = datetime.utcnow() + timedelta(minutes=15)
                 log_action('login_attempt', username, False, 'Account locked after 5 failed attempts')
-                error = 'Too many failed attempts. Account locked for 15 minutes.'
+                flash('Too many failed attempts. Account locked for 15 minutes.', 'error')
             else:
                 log_action('login_attempt', username, False, f'Failed attempt {user.failed_attempts}/5')
-                error = 'Invalid credentials'
+                flash('Invalid credentials', 'error')
             db.session.commit()
+        
+        return redirect(url_for('login'))
     
-    return render_template('login.html', error=error)
+    return render_template('login.html')
 
 @app.route('/camera')
 def camera():
