@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -9,32 +9,24 @@ import re
 
 app = Flask(__name__)
 
-# Security: Strong secret key from env only
-app.secret_key = os.environ.get('SECRET_KEY')
-if not app.secret_key:
-    raise ValueError("SECRET_KEY environment variable must be set")
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-key-change-before-production')
 
-# Security: Session config
 app.config.update(
-    SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
     PERMANENT_SESSION_LIFETIME=timedelta(hours=1)
 )
 
-# Database
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///security.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Rate limiting
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"]
 )
 
-# Models
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -52,7 +44,6 @@ class AccessLog(db.Model):
     success = db.Column(db.Boolean)
     details = db.Column(db.Text)
 
-# Create tables + default admin
 with app.app_context():
     db.create_all()
     if not User.query.filter_by(username='admin').first():
@@ -64,7 +55,6 @@ with app.app_context():
         db.session.add(admin)
         db.session.commit()
 
-# Helpers
 def sanitize_input(text):
     if not text:
         return ''
@@ -91,18 +81,10 @@ def is_account_locked(user):
         return True
     return False
 
-def require_admin():
-    if 'user_id' not in session or session.get('role') != 'admin':
-        log_action('unauthorized_access', session.get('username'), False, 'Non-admin tried to access admin area')
-        return redirect(url_for('camera'))
-    return None
-
-# Context processor
 @app.context_processor
-def inject_user():
-    return dict(session=session)
+def inject_globals():
+    return dict(session=session, now=datetime.utcnow())
 
-# Routes
 @app.route('/')
 def index():
     if 'user_id' in session:
@@ -127,7 +109,7 @@ def login():
             return redirect(url_for('login'))
         
         if is_account_locked(user):
-            log_action('login_attempt', username, False, f'Account locked until {user.locked_until}')
+            log_action('login_attempt', username, False, 'Account locked')
             flash('Account temporarily locked. Try again later.', 'error')
             return redirect(url_for('login'))
         
@@ -178,21 +160,19 @@ def logs():
     all_logs = AccessLog.query.order_by(AccessLog.timestamp.desc()).limit(1000).all()
     return render_template('logs.html', logs=all_logs)
 
-# USER MANAGEMENT ROUTES
 @app.route('/users')
 def users():
-    redirect_check = require_admin()
-    if redirect_check:
-        return redirect_check
+    if 'user_id' not in session or session.get('role') != 'admin':
+        log_action('unauthorized_access', session.get('username'), False, 'Non-admin tried to access user management')
+        return redirect(url_for('camera'))
     
     all_users = User.query.order_by(User.username).all()
     return render_template('users.html', users=all_users)
 
 @app.route('/users/add', methods=['POST'])
 def add_user():
-    redirect_check = require_admin()
-    if redirect_check:
-        return redirect_check
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('camera'))
     
     username = sanitize_input(request.form.get('username'))
     password = request.form.get('password', '')
@@ -223,9 +203,8 @@ def add_user():
 
 @app.route('/users/reset-password/<int:user_id>', methods=['POST'])
 def reset_password(user_id):
-    redirect_check = require_admin()
-    if redirect_check:
-        return redirect_check
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('camera'))
     
     user = User.query.get_or_404(user_id)
     new_password = request.form.get('new_password', '')
@@ -245,9 +224,8 @@ def reset_password(user_id):
 
 @app.route('/users/delete/<int:user_id>', methods=['POST'])
 def delete_user(user_id):
-    redirect_check = require_admin()
-    if redirect_check:
-        return redirect_check
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('camera'))
     
     user = User.query.get_or_404(user_id)
     
@@ -269,9 +247,8 @@ def delete_user(user_id):
 
 @app.route('/users/unlock/<int:user_id>', methods=['POST'])
 def unlock_user(user_id):
-    redirect_check = require_admin()
-    if redirect_check:
-        return redirect_check
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('camera'))
     
     user = User.query.get_or_404(user_id)
     user.failed_attempts = 0
