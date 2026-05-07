@@ -27,7 +27,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Rate limiting (5 login attempts per minute per IP)
+# Rate limiting
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -66,13 +66,11 @@ with app.app_context():
 
 # Helpers
 def sanitize_input(text):
-    """Remove any non-alphanumeric characters except underscore and hyphen"""
     if not text:
         return ''
     return re.sub(r'[^\w\-]', '', text.strip())[:80]
 
 def get_client_ip():
-    """Get real IP even behind proxy"""
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr
@@ -93,7 +91,13 @@ def is_account_locked(user):
         return True
     return False
 
-# Context processor for templates
+def require_admin():
+    if 'user_id' not in session or session.get('role') != 'admin':
+        log_action('unauthorized_access', session.get('username'), False, 'Non-admin tried to access admin area')
+        return redirect(url_for('camera'))
+    return None
+
+# Context processor
 @app.context_processor
 def inject_user():
     return dict(session=session)
@@ -115,7 +119,6 @@ def login():
         username = sanitize_input(request.form.get('username'))
         password = request.form.get('password', '')
         
-        # Log attempt regardless
         user = User.query.filter_by(username=username).first()
         
         if not user:
@@ -123,14 +126,12 @@ def login():
             flash('Invalid credentials', 'error')
             return redirect(url_for('login'))
         
-        # Check lockout
         if is_account_locked(user):
             log_action('login_attempt', username, False, f'Account locked until {user.locked_until}')
             flash('Account temporarily locked. Try again later.', 'error')
             return redirect(url_for('login'))
         
         if check_password_hash(user.password_hash, password):
-            # Success: reset failed attempts
             user.failed_attempts = 0
             user.locked_until = None
             db.session.commit()
@@ -142,7 +143,6 @@ def login():
             log_action('login_attempt', username, True, 'Successful login')
             return redirect(url_for('camera'))
         else:
-            # Failed: increment counter
             user.failed_attempts += 1
             if user.failed_attempts >= 5:
                 user.locked_until = datetime.utcnow() + timedelta(minutes=15)
@@ -177,6 +177,110 @@ def logs():
     
     all_logs = AccessLog.query.order_by(AccessLog.timestamp.desc()).limit(1000).all()
     return render_template('logs.html', logs=all_logs)
+
+# USER MANAGEMENT ROUTES
+@app.route('/users')
+def users():
+    redirect_check = require_admin()
+    if redirect_check:
+        return redirect_check
+    
+    all_users = User.query.order_by(User.username).all()
+    return render_template('users.html', users=all_users)
+
+@app.route('/users/add', methods=['POST'])
+def add_user():
+    redirect_check = require_admin()
+    if redirect_check:
+        return redirect_check
+    
+    username = sanitize_input(request.form.get('username'))
+    password = request.form.get('password', '')
+    role = request.form.get('role', 'viewer')
+    
+    if not username or not password:
+        flash('Username and password required', 'error')
+        return redirect(url_for('users'))
+    
+    if User.query.filter_by(username=username).first():
+        flash('Username already exists', 'error')
+        return redirect(url_for('users'))
+    
+    if role not in ['viewer', 'admin']:
+        role = 'viewer'
+    
+    new_user = User(
+        username=username,
+        password_hash=generate_password_hash(password),
+        role=role
+    )
+    db.session.add(new_user)
+    db.session.commit()
+    
+    log_action('user_management', session.get('username'), True, f'Created user {username} with role {role}')
+    flash(f'User {username} created successfully', 'success')
+    return redirect(url_for('users'))
+
+@app.route('/users/reset-password/<int:user_id>', methods=['POST'])
+def reset_password(user_id):
+    redirect_check = require_admin()
+    if redirect_check:
+        return redirect_check
+    
+    user = User.query.get_or_404(user_id)
+    new_password = request.form.get('new_password', '')
+    
+    if not new_password:
+        flash('Password cannot be empty', 'error')
+        return redirect(url_for('users'))
+    
+    user.password_hash = generate_password_hash(new_password)
+    user.failed_attempts = 0
+    user.locked_until = None
+    db.session.commit()
+    
+    log_action('user_management', session.get('username'), True, f'Reset password for {user.username}')
+    flash(f'Password reset for {user.username}', 'success')
+    return redirect(url_for('users'))
+
+@app.route('/users/delete/<int:user_id>', methods=['POST'])
+def delete_user(user_id):
+    redirect_check = require_admin()
+    if redirect_check:
+        return redirect_check
+    
+    user = User.query.get_or_404(user_id)
+    
+    if user.username == 'admin':
+        flash('Cannot delete the default admin account', 'error')
+        return redirect(url_for('users'))
+    
+    if user.id == session.get('user_id'):
+        flash('Cannot delete your own account', 'error')
+        return redirect(url_for('users'))
+    
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+    
+    log_action('user_management', session.get('username'), True, f'Deleted user {username}')
+    flash(f'User {username} deleted', 'success')
+    return redirect(url_for('users'))
+
+@app.route('/users/unlock/<int:user_id>', methods=['POST'])
+def unlock_user(user_id):
+    redirect_check = require_admin()
+    if redirect_check:
+        return redirect_check
+    
+    user = User.query.get_or_404(user_id)
+    user.failed_attempts = 0
+    user.locked_until = None
+    db.session.commit()
+    
+    log_action('user_management', session.get('username'), True, f'Unlocked account {user.username}')
+    flash(f'Account {user.username} unlocked', 'success')
+    return redirect(url_for('users'))
 
 @app.route('/logout')
 def logout():
