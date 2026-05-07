@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>System Monitoring - Camera Feed</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px 20px;
+            border-bottom: 2px solid #00aaff;
+        }
+        h1 {
+            color: #00aaff;
+            margin: 0;
+        }
+        .nav a {
+            color: #00aaff;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+        .nav a:hover {
+            text-decoration: underline;
+        }
+        .camera-container {
+            text-align: center;
+            margin-top: 40px;
+        }
+        .camera-feed {
+            width: 800px;
+            height: 450px;
+            background: #0f3460;
+            border: 3px solid #00aaff;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        .placeholder {
+            color: #aaa;
+            font-size: 18px;
+        }
+        .status {
+            margin-top: 20px;
+            color: #00ff88;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📹 Live Camera Monitor</h1>
+        <div class="nav">
+            {% if session.role == 'admin' %}
+                <a href="/logs">View Logs</a>
+                <a href="/users">User Management</a>
+            {% endif %}
+            <a href="/logout">Logout ({{ session.username }})</a>
+        </div>
+    </div>
+    
+    <div class="camera-container">
+        <div class="camera-feed">
+            <div class="placeholder">
+                🎥 Camera Feed Placeholder<br>
+                <small>Stream: rtsp://192.168.1.10:554/stream1</small>
+            </div>
+        </div>
+        <div class="status">● System Online | Connected as {{ session.username }}</div>
+    </div>
+</body>
+</html>
