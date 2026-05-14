@@ -4,8 +4,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from sqlalchemy.exc import OperationalError
 import os
 import re
+import time
 
 app = Flask(__name__)
 
@@ -44,16 +46,38 @@ class AccessLog(db.Model):
     success = db.Column(db.Boolean)
     details = db.Column(db.Text)
 
-with app.app_context():
-    db.create_all()
-    if not User.query.filter_by(username='admin').first():
-        admin = User(
-            username='admin',
-            password_hash=generate_password_hash('admin123'),
-            role='admin'
-        )
-        db.session.add(admin)
-        db.session.commit()
+def init_db_with_retry(max_retries=10, delay=3):
+    """Initialize DB with retry logic for Railway's parallel startup."""
+    for attempt in range(max_retries):
+        try:
+            with app.app_context():
+                db.create_all()
+                if not User.query.filter_by(username='admin').first():
+                    admin = User(
+                        username='admin',
+                        password_hash=generate_password_hash('admin123'),
+                        role='admin'
+                    )
+                    db.session.add(admin)
+                    db.session.commit()
+                    print("Admin user created.")
+                print("Database initialized successfully.")
+                return True
+        except OperationalError as e:
+            print(f"DB connection attempt {attempt + 1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+            else:
+                print("WARNING: Could not connect to database after all retries.")
+                print("App will start but DB features won't work until connection is restored.")
+                return False
+        except Exception as e:
+            print(f"Unexpected error during DB init: {e}")
+            return False
+    return False
+
+# Run DB init with retry - this won't crash the app if DB is temporarily unavailable
+db_ready = init_db_with_retry()
 
 def sanitize_input(text):
     if not text:
@@ -66,15 +90,21 @@ def get_client_ip():
     return request.remote_addr
 
 def log_action(action, username=None, success=False, details=''):
-    log = AccessLog(
-        ip_address=get_client_ip(),
-        username=sanitize_input(username) if username else None,
-        action=action,
-        success=success,
-        details=details[:500]
-    )
-    db.session.add(log)
-    db.session.commit()
+    if not db_ready:
+        return  # Silently skip logging if DB isn't available
+    try:
+        log = AccessLog(
+            ip_address=get_client_ip(),
+            username=sanitize_input(username) if username else None,
+            action=action,
+            success=success,
+            details=details[:500]
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"Failed to log action: {e}")
 
 def is_account_locked(user):
     if user.locked_until and user.locked_until > datetime.utcnow():
@@ -96,13 +126,17 @@ def index():
 def login():
     if 'user_id' in session:
         return redirect(url_for('camera'))
-    
+
     if request.method == 'POST':
         username = sanitize_input(request.form.get('username'))
         password = request.form.get('password', '')
-        
-        user = User.query.filter_by(username=username).first()
-        
+
+        try:
+            user = User.query.filter_by(username=username).first()
+        except Exception as e:
+            flash('Database error. Please try again.', 'error')
+            return redirect(url_for('login'))
+
         if not user:
             log_action('login_attempt', username, False, 'User not found')
             flash('Invalid credentials', 'error')
@@ -113,7 +147,7 @@ def login():
             user.failed_attempts = 0
             user.locked_until = None
             db.session.commit()
-            
+
             session.permanent = True
             session['user_id'] = user.id
             session['username'] = user.username
@@ -130,9 +164,9 @@ def login():
                 log_action('login_attempt', username, False, f'Failed attempt {user.failed_attempts}/5')
                 flash('Invalid credentials', 'error')
             db.session.commit()
-        
+
         return redirect(url_for('login'))
-    
+
     return render_template('login.html')
 
 @app.route('/camera')
@@ -140,7 +174,7 @@ def camera():
     if 'user_id' not in session:
         log_action('unauthorized_access', None, False, 'Unauthenticated access to /camera')
         return redirect(url_for('login'))
-    
+
     log_action('camera_view', session.get('username'), True, 'Viewed camera feed')
     return render_template('camera.html')
 
@@ -149,12 +183,17 @@ def logs():
     if 'user_id' not in session:
         log_action('unauthorized_access', None, False, 'Unauthenticated access to /logs')
         return redirect(url_for('login'))
-    
+
     if session.get('role') != 'admin':
         log_action('unauthorized_access', session.get('username'), False, 'Non-admin tried to access logs')
         return redirect(url_for('camera'))
-    
-    all_logs = AccessLog.query.order_by(AccessLog.timestamp.desc()).limit(1000).all()
+
+    try:
+        all_logs = AccessLog.query.order_by(AccessLog.timestamp.desc()).limit(1000).all()
+    except Exception as e:
+        flash('Error loading logs', 'error')
+        all_logs = []
+
     return render_template('logs.html', logs=all_logs)
 
 @app.route('/users')
@@ -162,30 +201,35 @@ def users():
     if 'user_id' not in session or session.get('role') != 'admin':
         log_action('unauthorized_access', session.get('username'), False, 'Non-admin tried to access user management')
         return redirect(url_for('camera'))
-    
-    all_users = User.query.order_by(User.username).all()
+
+    try:
+        all_users = User.query.order_by(User.username).all()
+    except Exception as e:
+        flash('Error loading users', 'error')
+        all_users = []
+
     return render_template('users.html', users=all_users)
 
 @app.route('/users/add', methods=['POST'])
 def add_user():
     if 'user_id' not in session or session.get('role') != 'admin':
         return redirect(url_for('camera'))
-    
+
     username = sanitize_input(request.form.get('username'))
     password = request.form.get('password', '')
     role = request.form.get('role', 'viewer')
-    
+
     if not username or not password:
         flash('Username and password required', 'error')
         return redirect(url_for('users'))
-    
+
     if User.query.filter_by(username=username).first():
         flash('Username already exists', 'error')
         return redirect(url_for('users'))
-    
+
     if role not in ['viewer', 'admin']:
         role = 'viewer'
-    
+
     new_user = User(
         username=username,
         password_hash=generate_password_hash(password),
@@ -193,7 +237,7 @@ def add_user():
     )
     db.session.add(new_user)
     db.session.commit()
-    
+
     log_action('user_management', session.get('username'), True, f'Created user {username} with role {role}')
     flash(f'User {username} created successfully', 'success')
     return redirect(url_for('users'))
@@ -202,19 +246,19 @@ def add_user():
 def reset_password(user_id):
     if 'user_id' not in session or session.get('role') != 'admin':
         return redirect(url_for('camera'))
-    
+
     user = User.query.get_or_404(user_id)
     new_password = request.form.get('new_password', '')
-    
+
     if not new_password:
         flash('Password cannot be empty', 'error')
         return redirect(url_for('users'))
-    
+
     user.password_hash = generate_password_hash(new_password)
     user.failed_attempts = 0
     user.locked_until = None
     db.session.commit()
-    
+
     log_action('user_management', session.get('username'), True, f'Reset password for {user.username}')
     flash(f'Password reset for {user.username}', 'success')
     return redirect(url_for('users'))
@@ -223,21 +267,21 @@ def reset_password(user_id):
 def delete_user(user_id):
     if 'user_id' not in session or session.get('role') != 'admin':
         return redirect(url_for('camera'))
-    
+
     user = User.query.get_or_404(user_id)
-    
+
     if user.username == 'admin':
         flash('Cannot delete the default admin account', 'error')
         return redirect(url_for('users'))
-    
+
     if user.id == session.get('user_id'):
         flash('Cannot delete your own account', 'error')
         return redirect(url_for('users'))
-    
+
     username = user.username
     db.session.delete(user)
     db.session.commit()
-    
+
     log_action('user_management', session.get('username'), True, f'Deleted user {username}')
     flash(f'User {username} deleted', 'success')
     return redirect(url_for('users'))
@@ -246,12 +290,12 @@ def delete_user(user_id):
 def unlock_user(user_id):
     if 'user_id' not in session or session.get('role') != 'admin':
         return redirect(url_for('camera'))
-    
+
     user = User.query.get_or_404(user_id)
     user.failed_attempts = 0
     user.locked_until = None
     db.session.commit()
-    
+
     log_action('user_management', session.get('username'), True, f'Unlocked account {user.username}')
     flash(f'Account {user.username} unlocked', 'success')
     return redirect(url_for('users'))
