@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -13,10 +13,13 @@ app = Flask(__name__)
 
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-key-change-before-production')
 
+# SECURITY FIX: Session config - browser closes = session dies
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=1)
+    SESSION_COOKIE_SECURE=True,  # Only send over HTTPS
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
+    SESSION_TYPE=None  # Client-side session, server doesn't store it
 )
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///security.db')
@@ -69,14 +72,13 @@ def init_db_with_retry(max_retries=10, delay=3):
                 time.sleep(delay)
             else:
                 print("WARNING: Could not connect to database after all retries.")
-                print("App will start but DB features won't work until connection is restored.")
                 return False
         except Exception as e:
             print(f"Unexpected error during DB init: {e}")
             return False
     return False
 
-# Run DB init with retry - this won't crash the app if DB is temporarily unavailable
+# Run DB init with retry
 db_ready = init_db_with_retry()
 
 def sanitize_input(text):
@@ -91,7 +93,7 @@ def get_client_ip():
 
 def log_action(action, username=None, success=False, details=''):
     if not db_ready:
-        return  # Silently skip logging if DB isn't available
+        return
     try:
         log = AccessLog(
             ip_address=get_client_ip(),
@@ -111,6 +113,46 @@ def is_account_locked(user):
         return True
     return False
 
+# SECURITY FIX: Global session validation - runs before EVERY request
+@app.before_request
+def validate_session():
+    """Ensure session is valid on every request. Kill dead/invalid sessions."""
+    # List of routes that don't need auth
+    public_routes = ['login', 'static']
+
+    if request.endpoint in public_routes:
+        return
+
+    # Check if user claims to be logged in
+    if 'user_id' in session:
+        # Verify user still exists in DB (prevents using stale session after user deletion)
+        try:
+            user = User.query.get(session.get('user_id'))
+            if not user:
+                # User was deleted, kill session
+                session.clear()
+                flash('Session expired. Please log in again.', 'error')
+                return redirect(url_for('login'))
+
+            # Check if account got locked since login
+            if is_account_locked(user):
+                session.clear()
+                flash('Account has been locked. Please contact an administrator.', 'error')
+                return redirect(url_for('login'))
+
+            # Store user in g for easy access
+            g.current_user = user
+
+        except Exception as e:
+            # DB error - don't crash, just clear session and redirect
+            session.clear()
+            flash('Session error. Please log in again.', 'error')
+            return redirect(url_for('login'))
+    else:
+        # No session, redirect to login (except for public routes)
+        if request.endpoint not in public_routes and request.method == 'GET':
+            return redirect(url_for('login'))
+
 @app.context_processor
 def inject_globals():
     return dict(session=session, now=datetime.utcnow())
@@ -124,48 +166,70 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
 def login():
+    # If already logged in, redirect
     if 'user_id' in session:
-        return redirect(url_for('camera'))
+        try:
+            user = User.query.get(session['user_id'])
+            if user and not is_account_locked(user):
+                return redirect(url_for('camera'))
+        except:
+            pass
+        session.clear()
 
     if request.method == 'POST':
         username = sanitize_input(request.form.get('username'))
         password = request.form.get('password', '')
 
+        # CRASH FIX: Wrap ENTIRE login logic in try/except with rollback
         try:
             user = User.query.filter_by(username=username).first()
-        except Exception as e:
-            flash('Database error. Please try again.', 'error')
-            return redirect(url_for('login'))
 
-        if not user:
-            log_action('login_attempt', username, False, 'User not found')
-            flash('Invalid credentials', 'error')
-        elif is_account_locked(user):
-            log_action('login_attempt', username, False, 'Account locked')
-            flash('Account temporarily locked. Try again later.', 'error')
-        elif check_password_hash(user.password_hash, password):
-            user.failed_attempts = 0
-            user.locked_until = None
-            db.session.commit()
-
-            session.permanent = True
-            session['user_id'] = user.id
-            session['username'] = user.username
-            session['role'] = user.role
-            log_action('login_attempt', username, True, 'Successful login')
-            return redirect(url_for('camera'))
-        else:
-            user.failed_attempts += 1
-            if user.failed_attempts >= 5:
-                user.locked_until = datetime.utcnow() + timedelta(minutes=15)
-                log_action('login_attempt', username, False, 'Account locked after 5 failed attempts')
-                flash('Too many failed attempts. Account locked for 15 minutes.', 'error')
-            else:
-                log_action('login_attempt', username, False, f'Failed attempt {user.failed_attempts}/5')
+            if not user:
+                log_action('login_attempt', username, False, 'User not found')
                 flash('Invalid credentials', 'error')
-            db.session.commit()
+                return redirect(url_for('login'))
 
-        return redirect(url_for('login'))
+            if is_account_locked(user):
+                log_action('login_attempt', username, False, 'Account locked')
+                flash('Account temporarily locked. Try again later.', 'error')
+                return redirect(url_for('login'))
+
+            if check_password_hash(user.password_hash, password):
+                # SUCCESS: Reset failed attempts and create session
+                user.failed_attempts = 0
+                user.locked_until = None
+                db.session.commit()
+
+                # SECURITY FIX: Don't use permanent session - dies when browser closes
+                session.clear()  # Clear any old session data first
+                session['user_id'] = user.id
+                session['username'] = user.username
+                session['role'] = user.role
+                # Don't set session.permanent = True - this makes it expire with browser
+
+                log_action('login_attempt', username, True, 'Successful login')
+                return redirect(url_for('camera'))
+            else:
+                # WRONG PASSWORD: Increment counter
+                user.failed_attempts += 1
+
+                if user.failed_attempts >= 5:
+                    user.locked_until = datetime.utcnow() + timedelta(minutes=15)
+                    log_action('login_attempt', username, False, 'Account locked after 5 failed attempts')
+                    flash('Too many failed attempts. Account locked for 15 minutes.', 'error')
+                else:
+                    log_action('login_attempt', username, False, f'Failed attempt {user.failed_attempts}/5')
+                    flash('Invalid credentials', 'error')
+
+                db.session.commit()
+                return redirect(url_for('login'))
+
+        except Exception as e:
+            # CRASH FIX: Always rollback on any error, then redirect safely
+            db.session.rollback()
+            print(f"Login error: {e}")
+            flash('An error occurred. Please try again.', 'error')
+            return redirect(url_for('login'))
 
     return render_template('login.html')
 
@@ -305,6 +369,7 @@ def logout():
     if 'user_id' in session:
         log_action('logout', session.get('username'), True, 'User logged out')
     session.clear()
+    flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
 
 @app.errorhandler(404)
