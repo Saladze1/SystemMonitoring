@@ -1,175 +1,448 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>System Monitoring - Camera Feed</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stylish Camera Feed</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            background: #1a1a2e;
-            color: #fff;
-            margin: 0;
-            padding: 20px;
-        }
-        .header {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f4b 50%, #0f3460 100%);
+            min-height: 100vh;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: center;
-            padding: 0 20px 20px;
-            border-bottom: 2px solid #00aaff;
+            justify-content: center;
+            padding: 40px 20px;
+            color: #fff;
         }
-        h1 {
-            color: #00aaff;
-            margin: 0;
-        }
-        .nav a {
-            color: #00aaff;
-            text-decoration: none;
-            margin-left: 20px;
-        }
-        .nav a:hover {
-            text-decoration: underline;
-        }
+
         .camera-container {
-            text-align: center;
-            margin-top: 40px;
+            width: 100%;
+            max-width: 1100px;
+            margin: 0 auto;
         }
+
+        .camera-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .camera-header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #00aaff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
+        }
+
+        .camera-header p {
+            color: #8b9dc3;
+            font-size: 1.1rem;
+            font-weight: 300;
+        }
+
         .camera-feed {
-            width: 800px;
-            height: 450px;
-            background: #0f3460;
-            border: 3px solid #00aaff;
-            border-radius: 10px;
+            width: 100%;
+            max-width: 1000px;
+            height: 600px;
+            background: linear-gradient(145deg, #0c1a3a, #1a2b5a);
+            border: 2px solid rgba(0, 170, 255, 0.3);
+            border-radius: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
             margin: 0 auto;
             overflow: hidden;
             position: relative;
+            box-shadow:
+                0 20px 60px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(0, 170, 255, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transition: all 0.4s ease;
         }
+
+        .camera-feed:hover {
+            border-color: rgba(0, 170, 255, 0.5);
+            box-shadow:
+                0 25px 70px rgba(0, 0, 0, 0.6),
+                0 0 0 1px rgba(0, 170, 255, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .camera-feed::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 80%, rgba(0, 170, 255, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 255, 136, 0.03) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .camera-feed::after {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
         video {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            border-radius: 8px;
+            border-radius: 22px;
             display: none;
         }
+
         .placeholder {
-            color: #aaa;
-            font-size: 18px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            color: #6b7c9e;
+            z-index: 1;
         }
+
+        .placeholder-icon {
+            width: 80px;
+            height: 80px;
+            border: 3px dashed rgba(0, 170, 255, 0.3);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse-border 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-border {
+            0%, 100% { border-color: rgba(0, 170, 255, 0.3); }
+            50% { border-color: rgba(0, 170, 255, 0.6); }
+        }
+
+        .placeholder-icon svg {
+            width: 36px;
+            height: 36px;
+            fill: rgba(0, 170, 255, 0.5);
+        }
+
+        .placeholder-text {
+            font-size: 1.2rem;
+            font-weight: 300;
+            letter-spacing: 0.5px;
+        }
+
         .status {
-            margin-top: 20px;
+            margin-top: 24px;
             color: #00ff88;
+            font-size: 1rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 24px;
         }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #00ff88;
+            border-radius: 50%;
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
         .controls {
-            margin-top: 15px;
+            margin-top: 30px;
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
         }
+
         button {
-            background: #00aaff;
+            background: linear-gradient(135deg, #00aaff, #0088cc);
             color: #fff;
             border: none;
-            padding: 10px 24px;
-            border-radius: 6px;
-            font-size: 15px;
+            padding: 14px 32px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
             cursor: pointer;
-            margin: 0 8px;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 170, 255, 0.3);
+            position: relative;
+            overflow: hidden;
         }
+
+        button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        button:hover::before {
+            left: 100%;
+        }
+
         button:disabled {
-            background: #555;
+            background: linear-gradient(135deg, #3a3a5c, #2a2a4a);
             cursor: not-allowed;
+            box-shadow: none;
+            opacity: 0.6;
         }
+
         button:hover:not(:disabled) {
-            background: #0088cc;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 170, 255, 0.4);
         }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background: linear-gradient(135deg, #1a2b5a, #0c1a3a);
+            border: 1px solid rgba(0, 170, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        button.secondary:hover:not(:disabled) {
+            border-color: rgba(0, 170, 255, 0.6);
+            box-shadow: 0 8px 25px rgba(0, 170, 255, 0.15);
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #ff4757, #cc3344);
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);
+        }
+
+        button.danger:hover:not(:disabled) {
+            box-shadow: 0 8px 25px rgba(255, 71, 87, 0.4);
+        }
+
         canvas {
             display: none;
         }
+
         #photo {
             display: none;
-            margin: 20px auto;
-            border: 2px solid #00aaff;
-            border-radius: 8px;
+            margin: 30px auto;
+            border: 2px solid rgba(0, 170, 255, 0.3);
+            border-radius: 16px;
             max-width: 800px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .corner-decoration {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(0, 170, 255, 0.4);
+            z-index: 2;
+        }
+
+        .corner-tl { top: 15px; left: 15px; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; }
+        .corner-tr { top: 15px; right: 15px; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; }
+        .corner-bl { bottom: 15px; left: 15px; border-right: none; border-top: none; border-radius: 0 0 0 8px; }
+        .corner-br { bottom: 15px; right: 15px; border-left: none; border-top: none; border-radius: 0 0 8px 0; }
+
+        .recording-indicator {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 0, 0, 0.2);
+            padding: 6px 14px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            z-index: 3;
+        }
+
+        .recording-indicator.active {
+            display: flex;
+        }
+
+        .rec-dot {
+            width: 10px;
+            height: 10px;
+            background: #ff0000;
+            border-radius: 50%;
+            animation: blink 1s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .rec-text {
+            color: #ff6b6b;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+
+        @media (max-width: 768px) {
+            .camera-feed {
+                height: 400px;
+                border-radius: 16px;
+            }
+
+            .camera-header h1 {
+                font-size: 1.8rem;
+            }
+
+            button {
+                padding: 12px 24px;
+                font-size: 0.9rem;
+            }
         }
     </style>
+<base target="_blank">
 </head>
 <body>
-    <div class="header">
-        <h1>📹 Live Camera Monitor</h1>
-        <div class="nav">
-            {% if session.role == 'admin' %}
-                <a href="/logs">View Logs</a>
-                <a href="/users">User Management</a>
-            {% endif %}
-            <a href="/logout">Logout ({{ session.username }})</a>
-        </div>
-    </div>
-
     <div class="camera-container">
-        <div class="camera-feed">
-            <div class="placeholder" id="placeholder">
-                🎥 Camera Feed Placeholder<br>
-                <small>Click "Start Camera" to begin</small>
+        <div class="camera-header">
+            <h1>Camera Studio</h1>
+            <p>Capture moments with style</p>
+        </div>
+
+        <div class="camera-feed" id="cameraFeed">
+            <div class="corner-decoration corner-tl"></div>
+            <div class="corner-decoration corner-tr"></div>
+            <div class="corner-decoration corner-bl"></div>
+            <div class="corner-decoration corner-br"></div>
+
+            <div class="recording-indicator" id="recordingIndicator">
+                <div class="rec-dot"></div>
+                <span class="rec-text">REC</span>
             </div>
+
             <video id="video" autoplay playsinline></video>
+            <div class="placeholder" id="placeholder">
+                <div class="placeholder-icon">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+                        <path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/>
+                    </svg>
+                </div>
+                <div class="placeholder-text">Camera is off</div>
+            </div>
+        </div>
+
+        <div class="status" id="status">
+            <span style="color: #6b7c9e;">Ready to start</span>
         </div>
 
         <div class="controls">
-            <button id="startBtn">▶ Start Camera</button>
-            <button id="captureBtn" disabled>📸 Capture Photo</button>
-            <button id="stopBtn" disabled>⏹ Stop Camera</button>
+            <button id="startBtn" onclick="startCamera()">Start Camera</button>
+            <button id="captureBtn" class="secondary" onclick="takePhoto()" disabled>Capture</button>
+            <button id="stopBtn" class="danger" onclick="stopCamera()" disabled>Stop</button>
         </div>
 
-        <canvas id="canvas" width="800" height="450"></canvas>
+        <canvas id="canvas"></canvas>
         <img id="photo" alt="Captured photo">
-
-        <div class="status">● System Online | Connected as {{ session.username }}</div>
     </div>
 
     <script>
         const video = document.getElementById('video');
-        const placeholder = document.getElementById('placeholder');
         const canvas = document.getElementById('canvas');
         const photo = document.getElementById('photo');
         const startBtn = document.getElementById('startBtn');
         const captureBtn = document.getElementById('captureBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const placeholder = document.getElementById('placeholder');
+        const recordingIndicator = document.getElementById('recordingIndicator');
+
         let stream = null;
 
-        startBtn.addEventListener('click', () => {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-                .then(s => {
-                    stream = s;
-                    video.srcObject = stream;
-                    video.style.display = 'block';
-                    placeholder.style.display = 'none';
-                    startBtn.disabled = true;
-                    captureBtn.disabled = false;
-                    stopBtn.disabled = false;
-                })
-                .catch(err => {
-                    alert('Camera access denied or unavailable: ' + err.message);
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
                 });
-        });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                placeholder.style.display = 'none';
+                recordingIndicator.classList.add('active');
 
-        captureBtn.addEventListener('click', () => {
-            canvas.getContext('2d').drawImage(video, 0, 0, 800, 450);
+                startBtn.disabled = true;
+                captureBtn.disabled = false;
+                stopBtn.disabled = false;
+
+                status.innerHTML = '<div class="status-dot"></div><span>Camera active</span>';
+            } catch (err) {
+                status.innerHTML = '<span style="color: #ff6b6b;">Error: ' + err.message + '</span>';
+            }
+        }
+
+        function takePhoto() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
             photo.src = canvas.toDataURL('image/png');
             photo.style.display = 'block';
-        });
+            status.innerHTML = '<div class="status-dot" style="background: #00aaff;"></div><span style="color: #00aaff;">Photo captured!</span>';
 
-        stopBtn.addEventListener('click', () => {
+            setTimeout(() => {
+                status.innerHTML = '<div class="status-dot"></div><span>Camera active</span>';
+            }, 2000);
+        }
+
+        function stopCamera() {
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
             video.style.display = 'none';
-            placeholder.style.display = 'block';
+            placeholder.style.display = 'flex';
+            recordingIndicator.classList.remove('active');
             photo.style.display = 'none';
+
             startBtn.disabled = false;
             captureBtn.disabled = true;
             stopBtn.disabled = true;
-        });
+
+            status.innerHTML = '<span style="color: #6b7c9e;">Camera stopped</span>';
+        }
     </script>
 </body>
 </html>
