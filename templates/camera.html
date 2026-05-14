@@ -1,79 +1,60 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>System Monitoring - Camera Feed</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #1a1a2e;
-            color: #fff;
-            margin: 0;
-            padding: 20px;
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 20px 20px;
-            border-bottom: 2px solid #00aaff;
-        }
-        h1 {
-            color: #00aaff;
-            margin: 0;
-        }
-        .nav a {
-            color: #00aaff;
-            text-decoration: none;
-            margin-left: 20px;
-        }
-        .nav a:hover {
-            text-decoration: underline;
-        }
-        .camera-container {
-            text-align: center;
-            margin-top: 40px;
-        }
-        .camera-feed {
-            width: 800px;
-            height: 450px;
-            background: #0f3460;
-            border: 3px solid #00aaff;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto;
-        }
-        .placeholder {
-            color: #aaa;
-            font-size: 18px;
-        }
-        .status {
-            margin-top: 20px;
-            color: #00ff88;
-        }
-    </style>
+    <title>Camera Feed</title>
 </head>
 <body>
-    <div class="header">
-        <h1>📹 Live Camera Monitor</h1>
-        <div class="nav">
-            {% if session.role == 'admin' %}
-                <a href="/logs">View Logs</a>
-                <a href="/users">User Management</a>
-            {% endif %}
-            <a href="/logout">Logout ({{ session.username }})</a>
-        </div>
-    </div>
-    
-    <div class="camera-container">
-        <div class="camera-feed">
-            <div class="placeholder">
-                🎥 Camera Feed Placeholder<br>
-                <small>Stream: rtsp://192.168.1.10:554/stream1</small>
-            </div>
-        </div>
-        <div class="status">● System Online | Connected as {{ session.username }}</div>
-    </div>
+    <h2>Welcome, {{ session['username'] }} ({{ session['role'] }})</h2>
+
+    <video id="video" width="640" height="480" autoplay playsinline></video>
+    <br>
+    <button id="startBtn">Start Camera</button>
+    <button id="captureBtn" disabled>Capture Photo</button>
+    <a href="{{ url_for('logout') }}">Logout</a>
+
+    {% if session['role'] == 'admin' %}
+        <a href="{{ url_for('logs') }}">View Logs</a>
+        <a href="{{ url_for('users') }}">Manage Users</a>
+    {% endif %}
+
+    <br>
+    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+    <img id="photo" alt="">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <p style="color: {{ 'red' if category == 'error' else 'green' }}">{{ message }}</p>
+        {% endfor %}
+    {% endwith %}
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const photo = document.getElementById('photo');
+        const startBtn = document.getElementById('startBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        let stream = null;
+
+        // Start camera on button click (avoids autoplay issues)
+        startBtn.addEventListener('click', () => {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                .then(s => {
+                    stream = s;
+                    video.srcObject = stream;
+                    startBtn.disabled = true;
+                    captureBtn.disabled = false;
+                })
+                .catch(err => {
+                    alert('Camera access denied or unavailable: ' + err.message);
+                });
+        });
+
+        // Capture a still frame
+        captureBtn.addEventListener('click', () => {
+            canvas.getContext('2d').drawImage(video, 0, 0, 640, 480);
+            canvas.style.display = 'block';
+            photo.src = canvas.toDataURL('image/png');
+        });
+    </script>
 </body>
 </html>
