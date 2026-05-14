@@ -1,59 +1,174 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Camera Feed</title>
+    <title>System Monitoring - Camera Feed</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px 20px;
+            border-bottom: 2px solid #00aaff;
+        }
+        h1 {
+            color: #00aaff;
+            margin: 0;
+        }
+        .nav a {
+            color: #00aaff;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+        .nav a:hover {
+            text-decoration: underline;
+        }
+        .camera-container {
+            text-align: center;
+            margin-top: 40px;
+        }
+        .camera-feed {
+            width: 800px;
+            height: 450px;
+            background: #0f3460;
+            border: 3px solid #00aaff;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            overflow: hidden;
+            position: relative;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 8px;
+            display: none;
+        }
+        .placeholder {
+            color: #aaa;
+            font-size: 18px;
+        }
+        .status {
+            margin-top: 20px;
+            color: #00ff88;
+        }
+        .controls {
+            margin-top: 15px;
+        }
+        button {
+            background: #00aaff;
+            color: #fff;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-size: 15px;
+            cursor: pointer;
+            margin: 0 8px;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        button:hover:not(:disabled) {
+            background: #0088cc;
+        }
+        canvas {
+            display: none;
+        }
+        #photo {
+            display: none;
+            margin: 20px auto;
+            border: 2px solid #00aaff;
+            border-radius: 8px;
+            max-width: 800px;
+        }
+    </style>
 </head>
 <body>
-    <h2>Welcome, {{ session['username'] }} ({{ session['role'] }})</h2>
+    <div class="header">
+        <h1>📹 Live Camera Monitor</h1>
+        <div class="nav">
+            {% if session.role == 'admin' %}
+                <a href="/logs">View Logs</a>
+                <a href="/users">User Management</a>
+            {% endif %}
+            <a href="/logout">Logout ({{ session.username }})</a>
+        </div>
+    </div>
 
-    <video id="video" width="640" height="480" autoplay playsinline></video>
-    <br>
-    <button id="startBtn">Start Camera</button>
-    <button id="captureBtn" disabled>Capture Photo</button>
-    <a href="{{ url_for('logout') }}">Logout</a>
+    <div class="camera-container">
+        <div class="camera-feed">
+            <div class="placeholder" id="placeholder">
+                🎥 Camera Feed Placeholder<br>
+                <small>Click "Start Camera" to begin</small>
+            </div>
+            <video id="video" autoplay playsinline></video>
+        </div>
 
-    {% if session['role'] == 'admin' %}
-        <a href="{{ url_for('logs') }}">View Logs</a>
-        <a href="{{ url_for('users') }}">Manage Users</a>
-    {% endif %}
+        <div class="controls">
+            <button id="startBtn">▶ Start Camera</button>
+            <button id="captureBtn" disabled>📸 Capture Photo</button>
+            <button id="stopBtn" disabled>⏹ Stop Camera</button>
+        </div>
 
-    <br>
-    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
-    <img id="photo" alt="">
+        <canvas id="canvas" width="800" height="450"></canvas>
+        <img id="photo" alt="Captured photo">
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <p style="color: {{ 'red' if category == 'error' else 'green' }}">{{ message }}</p>
-        {% endfor %}
-    {% endwith %}
+        <div class="status">● System Online | Connected as {{ session.username }}</div>
+    </div>
 
     <script>
         const video = document.getElementById('video');
+        const placeholder = document.getElementById('placeholder');
         const canvas = document.getElementById('canvas');
         const photo = document.getElementById('photo');
         const startBtn = document.getElementById('startBtn');
         const captureBtn = document.getElementById('captureBtn');
+        const stopBtn = document.getElementById('stopBtn');
         let stream = null;
 
-        // Start camera on button click (avoids autoplay issues)
         startBtn.addEventListener('click', () => {
             navigator.mediaDevices.getUserMedia({ video: true, audio: false })
                 .then(s => {
                     stream = s;
                     video.srcObject = stream;
+                    video.style.display = 'block';
+                    placeholder.style.display = 'none';
                     startBtn.disabled = true;
                     captureBtn.disabled = false;
+                    stopBtn.disabled = false;
                 })
                 .catch(err => {
                     alert('Camera access denied or unavailable: ' + err.message);
                 });
         });
 
-        // Capture a still frame
         captureBtn.addEventListener('click', () => {
-            canvas.getContext('2d').drawImage(video, 0, 0, 640, 480);
-            canvas.style.display = 'block';
+            canvas.getContext('2d').drawImage(video, 0, 0, 800, 450);
             photo.src = canvas.toDataURL('image/png');
+            photo.style.display = 'block';
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            video.style.display = 'none';
+            placeholder.style.display = 'block';
+            photo.style.display = 'none';
+            startBtn.disabled = false;
+            captureBtn.disabled = true;
+            stopBtn.disabled = true;
         });
     </script>
 </body>
