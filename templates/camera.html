@@ -92,7 +92,7 @@
         <video id="cameraVideo" autoplay playsinline muted></video>
         <div class="camera-overlay" id="overlay">
             <p id="overlayMsg">Click the button to access camera</p>
-            <button class="start-btn" id="startBtn" onclick="startCamera()">▶ Start Camera</button>
+            <button class="start-btn" id="startBtn">▶ Start Camera</button>
         </div>
     </div> 
     
@@ -129,9 +129,12 @@ function startCamera() {
         .catch(err => {
             setStatus('#dc2626', 'OFFLINE');
             console.error("Camera error:", err);
-            alert("Camera access denied or unavailable. Please check browser permissions.");
+            alert("Camera access denied or unavailable.");
         });
 }
+
+// Added Event Listener to bind the function securely
+startBtn.addEventListener('click', startCamera);
 
 // Update timestamp
 setInterval(() => { 
