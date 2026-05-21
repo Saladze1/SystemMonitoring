@@ -9,7 +9,7 @@
 <table>
     <thead>
         <tr>
-            <th>Time</th>
+            <th>Time (PHT)</th>
             <th>IP Address</th>
             <th>Username</th>
             <th>Action</th>
@@ -21,7 +21,8 @@
         {% for log in pagination.items %}
         <tr>
             <td style="color: #94a3b8; font-size: 0.875rem;">
-                {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+                {# We cast the timezone here to ensure it displays as Asia/Manila #}
+                {{ log.timestamp.astimezone(None).strftime('%Y-%m-%d %H:%M:%S') }}
             </td>
             <td>{{ log.ip_address or 'N/A' }}</td>
             <td>{{ log.username or 'Anonymous' }}</td>
