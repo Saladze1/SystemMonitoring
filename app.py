@@ -510,4 +510,14 @@ def logout():
 
 @app.errorhandler(404)
 def not_found(e):
-    log_action("page_not_
+    log_action("page_not_found", session.get("username"), False, f"404 on {request.path}")
+    return render_template("404.html"), 404
+
+@app.errorhandler(429)
+def rate_limited(e):
+    log_action("rate_limit", session.get("username"), False, "Rate limit exceeded")
+    flash("Too many requests. Please slow down.", "error")
+    return redirect(url_for("login")), 429
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
