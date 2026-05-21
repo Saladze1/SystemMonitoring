@@ -27,7 +27,7 @@
 .status-dot { 
     width: 8px; 
     height: 8px; 
-    background: #22c55e; 
+    background: #94a3b8; 
     border-radius: 50%; 
 } 
 .camera-feed { 
@@ -43,14 +43,29 @@
 .camera-feed video { 
     width: 100%; 
     height: 100%; 
-    object-fit: cover; 
+    object-fit: cover;
 }
-.camera-offline {
-    color: #64748b;
-    text-align: center;
-    padding: 2rem;
+.camera-overlay {
+    position: absolute;
     display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    color: #94a3b8;
+    text-align: center;
+    padding: 1rem;
 }
+.start-btn {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    cursor: pointer;
+}
+.start-btn:hover { background: #2563eb; }
 .camera-info { 
     padding: 1rem 1.5rem; 
     display: flex; 
@@ -70,16 +85,16 @@
         <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;"> 
             <div class="camera-status"> 
                 <div class="status-dot" id="statusDot"></div> 
-                <span style="color: #22c55e; font-size: 0.875rem;" id="statusText">LIVE</span> 
+                <span style="color: #94a3b8; font-size: 0.875rem;" id="statusText">STARTING...</span> 
             </div> 
         </div> 
     </div> 
     
     <div class="camera-feed" id="feedContainer"> 
         <video id="cameraVideo" autoplay playsinline muted></video>
-        <div class="camera-offline" id="offlineMsg">
-            <p style="font-size:1.25rem; margin-bottom:0.5rem;">⚠ Camera Unavailable</p>
-            <p style="font-size:0.875rem;">Permission denied or no camera found.</p>
+        <div class="camera-overlay" id="overlay">
+            <p id="overlayMsg"></p>
+            <button class="start-btn" id="startBtn" style="display:none;" onclick="startCamera()">▶ Start Camera</button>
         </div>
     </div> 
     
@@ -95,25 +110,59 @@
 const video = document.getElementById('cameraVideo');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
-const offlineMsg = document.getElementById('offlineMsg');
+const overlay = document.getElementById('overlay');
+const overlayMsg = document.getElementById('overlayMsg');
+const startBtn = document.getElementById('startBtn');
 
-function setOffline(reason) {
-    statusDot.style.background = '#dc2626';
-    statusText.textContent = 'OFFLINE';
-    statusText.style.color = '#dc2626';
-    video.style.display = 'none';
-    offlineMsg.style.display = 'block';
-    console.warn('Camera offline:', reason);
+function setStatus(color, text, textColor) {
+    statusDot.style.background = color;
+    statusText.textContent = text;
+    statusText.style.color = textColor || color;
 }
 
-navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-    .then(stream => {
-        video.srcObject = stream;
-        statusDot.style.background = '#22c55e';
-        statusText.textContent = 'LIVE';
-        statusText.style.color = '#22c55e';
-    })
-    .catch(err => setOffline(err.message));
+function showOverlay(msg, showButton) {
+    overlay.style.display = 'flex';
+    overlayMsg.textContent = msg;
+    startBtn.style.display = showButton ? 'inline-block' : 'none';
+}
+
+function hideOverlay() {
+    overlay.style.display = 'none';
+}
+
+function startCamera() {
+    setStatus('#f59e0b', 'CONNECTING...', '#f59e0b');
+    hideOverlay();
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        .then(stream => {
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                video.play()
+                    .then(() => {
+                        setStatus('#22c55e', 'LIVE', '#22c55e');
+                        hideOverlay();
+                    })
+                    .catch(() => {
+                        // play() rejected — still try to show frame
+                        setStatus('#22c55e', 'LIVE', '#22c55e');
+                        hideOverlay();
+                    });
+            };
+        })
+        .catch(err => {
+            if (err.name === 'NotAllowedError') {
+                setStatus('#dc2626', 'OFFLINE', '#dc2626');
+                showOverlay('Camera permission denied. Allow access in your browser settings and refresh.', false);
+            } else {
+                setStatus('#dc2626', 'OFFLINE', '#dc2626');
+                showOverlay('Camera error: ' + err.message, true);
+            }
+        });
+}
+
+// Start automatically on page load
+startCamera();
 
 // Update timestamp every second 
 setInterval(() => { 
@@ -125,4 +174,3 @@ setInterval(() => {
 }, 1000); 
 </script> 
 {% endblock %}
-
