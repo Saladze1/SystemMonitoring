@@ -1,4 +1,5 @@
 Flask==3.0.3
+opencv-python-headless==4.9.0.80
 Flask-SQLAlchemy==3.1.1
 psycopg2-binary==2.9.9
 Werkzeug==3.0.3
@@ -8,5 +9,3 @@ redis==5.0.0
 Flask-WTF==1.2.1
 WTForms==3.1.2
 Flask-Migrate==4.0.7
-opencv-python-headless==4.9.0.80
-numpy==1.26.4
