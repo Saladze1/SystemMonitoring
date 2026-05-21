@@ -6,8 +6,6 @@ import secrets
 import logging
 from datetime import datetime, timedelta
 from functools import wraps
-import cv2  # Added for camera streaming
-
 from flask import (
     Flask,
     render_template,
@@ -252,36 +250,6 @@ def inject_globals():
     return dict(session=session, now=datetime.utcnow)
 
 # =======================
-# Camera Streaming Logic
-# =======================
-def gen_frames():
-    # Read camera source from environment variable.
-    # Set CAMERA_URL to an RTSP stream e.g. "rtsp://user:pass@192.168.1.10:554/stream"
-    # Leave unset (or set to "0") to use the local webcam (index 0).
-    camera_url = os.environ.get("CAMERA_URL", "0")
-    source = int(camera_url) if camera_url.isdigit() else camera_url
-
-    camera = cv2.VideoCapture(source)
-    if not camera.isOpened():
-        logger.error(f"Failed to open camera source: {source}")
-        return
-
-    try:
-        while True:
-            success, frame = camera.read()
-            if not success:
-                logger.warning("Camera read failed, stopping stream.")
-                break
-            ret, buffer = cv2.imencode('.jpg', frame)
-            if not ret:
-                continue
-            frame = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-    finally:
-        camera.release()
-
-# =======================
 # Routes
 # =======================
 @app.route("/")
@@ -358,13 +326,6 @@ def camera():
         return redirect(url_for("login"))
     log_action("camera_view", session.get("username"), True, "Viewed camera feed")
     return render_template("camera.html")
-
-@app.route("/video_feed")
-def video_feed():
-    if "user_id" not in session:
-        return "Unauthorized", 401
-    from flask import Response
-    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route("/logs")
 @admin_required
@@ -521,3 +482,4 @@ def rate_limited(e):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
+
