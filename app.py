@@ -198,10 +198,10 @@ def add_security_headers(response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    # Added blob: data: and explicit allowance to resolve streaming issues with CSP
+    # Added 'unsafe-inline' to script-src to allow inline JS execution
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
         "media-src blob:; "
@@ -483,4 +483,3 @@ def rate_limited(e):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
-
