@@ -1,267 +1,104 @@
-{% extends "base.html" %}
+{% extends "base.html" %} 
+{% block title %}Camera Feed - Security System{% endblock %} 
 
-{% block title %}Camera Feed - Security System{% endblock %}
+{% block extra_css %} 
+<style> 
+.camera-container { 
+    background: #1e293b; 
+    border-radius: 0.75rem; 
+    border: 1px solid #334155; 
+    overflow: hidden; 
+} 
+.camera-header { 
+    padding: 1rem 1.5rem; 
+    background: #0f172a; 
+    border-bottom: 1px solid #334155; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    flex-wrap: wrap; 
+    gap: 1rem; 
+} 
+.camera-status { 
+    display: flex; 
+    align-items: center; 
+    gap: 0.5rem; 
+} 
+.status-dot { 
+    width: 8px; 
+    height: 8px; 
+    background: #22c55e; 
+    border-radius: 50%; 
+} 
+.camera-feed { 
+    aspect-ratio: 16/9; 
+    background: #000; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    position: relative; 
+    overflow: hidden; 
+    min-height: 300px; 
+} 
+.camera-feed img { 
+    width: 100%; 
+    height: 100%; 
+    object-fit: cover; 
+} 
+.camera-info { 
+    padding: 1rem 1.5rem; 
+    display: flex; 
+    justify-content: space-between; 
+    color: #94a3b8; 
+    font-size: 0.875rem; 
+    flex-wrap: wrap; 
+    gap: 0.5rem; 
+} 
+</style> 
+{% endblock %} 
 
-{% block extra_css %}
-<style>
-    .camera-container {
-        background: #1e293b;
-        border-radius: 0.75rem;
-        border: 1px solid #334155;
-        overflow: hidden;
-    }
-    .camera-header {
-        padding: 1rem 1.5rem;
-        background: #0f172a;
-        border-bottom: 1px solid #334155;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 1rem;
-    }
-    .camera-status {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .status-dot {
-        width: 8px;
-        height: 8px;
-        background: #dc2626;
-        border-radius: 50%;
-        animation: pulse 2s infinite;
-    }
-    .status-dot.active { background: #22c55e; }
-    .status-dot.offline { background: #dc2626; animation: none; }
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-    .camera-feed {
-        aspect-ratio: 16/9;
-        background: #000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        overflow: hidden;
-        min-height: 300px;
-    }
-    .camera-feed video {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: none;
-    }
-    .camera-feed video.active { display: block; }
-    .camera-placeholder {
-        color: #64748b;
-        font-size: 1.25rem;
-        text-align: center;
-        padding: 2rem;
-    }
-    .camera-placeholder .error-text {
-        color: #f87171;
-        font-size: 0.875rem;
-        margin-top: 0.5rem;
-    }
-    .camera-info {
-        padding: 1rem 1.5rem;
-        display: flex;
-        justify-content: space-between;
-        color: #94a3b8;
-        font-size: 0.875rem;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-    }
-    .cam-controls {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-    }
-    .cam-btn {
-        background: #334155;
-        color: #e2e8f0;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        font-size: 0.875rem;
-    }
-    .cam-btn:hover { background: #475569; }
-    .cam-btn.active { background: #dc2626; }
-    .cam-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    .https-warning {
-        background: #7f1d1d;
-        color: #fecaca;
-        padding: 1rem;
-        border-radius: 0.375rem;
-        margin-bottom: 1rem;
-        border: 1px solid #dc2626;
-    }
-</style>
-{% endblock %}
+{% block content %} 
+<div class="camera-container"> 
+    <div class="camera-header"> 
+        <h2>Live Camera Feed</h2> 
+        <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;"> 
+            <div class="camera-status"> 
+                <div class="status-dot" id="statusDot"></div> 
+                <span style="color: #22c55e; font-size: 0.875rem;" id="statusText">LIVE</span> 
+            </div> 
+        </div> 
+    </div> 
+    
+    <div class="camera-feed" id="feedContainer"> 
+        <img src="{{ url_for('video_feed') }}" alt="Live Security Feed Unavailable" onerror="handleStreamError()"> 
+    </div> 
+    
+    <div class="camera-info"> 
+        <span>Camera 1 - Main Entrance</span> 
+        <span id="timestamp">{{ now().strftime('%Y-%m-%d %H:%M:%S UTC') }}</span> 
+    </div> 
+</div> 
+{% endblock %} 
 
-{% block content %}
-<div class="camera-container">
-    <div class="camera-header">
-        <h2>Live Camera Feed</h2>
-        <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
-            <div class="camera-status">
-                <div class="status-dot offline" id="statusDot"></div>
-                <span style="color: #dc2626; font-size: 0.875rem;" id="statusText">OFFLINE</span>
-            </div>
-            <div class="cam-controls">
-                <button class="cam-btn" id="toggleCam" onclick="toggleCamera()">Start Camera</button>
-                <button class="cam-btn" id="switchCam" onclick="switchCamera()" disabled>Switch Cam</button>
-                <button class="cam-btn" id="snapshotBtn" onclick="takeSnapshot()" disabled>📸 Snapshot</button>
-            </div>
-        </div>
-    </div>
-    <div class="camera-feed" id="feedContainer">
-        <video id="webcam" autoplay playsinline muted></video>
-        <div class="camera-placeholder" id="placeholder">
-            <div>Camera Off</div>
-            <div style="font-size:0.875rem; margin-top:0.5rem; color:#64748b;">Click "Start Camera" to begin</div>
-            <div class="error-text" id="camError"></div>
-        </div>
-    </div>
-    <div class="camera-info">
-        <span>Camera 1 - Main Entrance</span>
-        <span id="timestamp">{{ now().strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
-    </div>
-</div>
-
-<canvas id="snapshotCanvas" style="display:none;"></canvas>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-    let stream = null;
-    let currentFacing = "user";
-    const video = document.getElementById('webcam');
-    const placeholder = document.getElementById('placeholder');
+{% block extra_js %} 
+<script> 
+function handleStreamError() {
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
-    const toggleBtn = document.getElementById('toggleCam');
-    const switchBtn = document.getElementById('switchCam');
-    const snapshotBtn = document.getElementById('snapshotBtn');
-    const camError = document.getElementById('camError');
-
-    // Check if page is served over HTTPS (required for getUserMedia in production)
-    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-        camError.textContent = 'Camera requires HTTPS. Please use a secure connection.';
-    }
-
-    async function startCamera() {
-        camError.textContent = '';
-        try {
-            // Check for HTTPS requirement
-            if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-                throw new Error('Camera access requires HTTPS connection');
-            }
-
-            const constraints = {
-                video: {
-                    facingMode: currentFacing,
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false
-            };
-
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = stream;
-            video.classList.add('active');
-            placeholder.style.display = 'none';
-            statusDot.classList.remove('offline');
-            statusDot.classList.add('active');
-            statusText.textContent = 'LIVE';
-            statusText.style.color = '#22c55e';
-            toggleBtn.textContent = 'Stop Camera';
-            toggleBtn.classList.add('active');
-            switchBtn.disabled = false;
-            snapshotBtn.disabled = false;
-        } catch (err) {
-            console.error('Camera error:', err);
-            let msg = 'Could not access camera. ';
-            if (err.name === 'NotAllowedError') {
-                msg += 'Please allow camera permissions in your browser.';
-            } else if (err.name === 'NotFoundError') {
-                msg += 'No camera found on this device.';
-            } else if (err.message.includes('HTTPS')) {
-                msg = 'Camera requires HTTPS connection. Please use a secure URL.';
-            } else {
-                msg += err.message;
-            }
-            camError.textContent = msg;
-            statusDot.classList.add('offline');
-            statusText.textContent = 'ERROR';
-            statusText.style.color = '#dc2626';
-        }
-    }
-
-    function stopCamera() {
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
-        }
-        video.srcObject = null;
-        video.classList.remove('active');
-        placeholder.style.display = 'block';
-        statusDot.classList.remove('active');
-        statusDot.classList.add('offline');
-        statusText.textContent = 'OFFLINE';
+    if(statusDot && statusText) {
+        statusDot.style.background = '#dc2626';
+        statusText.textContent = 'ERROR / OFFLINE';
         statusText.style.color = '#dc2626';
-        toggleBtn.textContent = 'Start Camera';
-        toggleBtn.classList.remove('active');
-        switchBtn.disabled = true;
-        snapshotBtn.disabled = true;
-        camError.textContent = '';
     }
+}
 
-    function toggleCamera() {
-        if (stream) {
-            stopCamera();
-        } else {
-            startCamera();
-        }
-    }
-
-    async function switchCamera() {
-        const wasRunning = !!stream;
-        if (wasRunning) stopCamera();
-        currentFacing = currentFacing === "user" ? "environment" : "user";
-        if (wasRunning) await startCamera();
-    }
-
-    function takeSnapshot() {
-        if (!stream) {
-            camError.textContent = 'Start the camera first!';
-            return;
-        }
-        const canvas = document.getElementById('snapshotCanvas');
-        canvas.width = video.videoWidth || 1280;
-        canvas.height = video.videoHeight || 720;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const link = document.createElement('a');
-        link.download = 'snapshot-' + new Date().toISOString().slice(0,19).replace(/:/g,'-') + '.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-    }
-
-    // Update timestamp every second
-    setInterval(() => {
-        const el = document.getElementById('timestamp');
-        if (el) {
-            const now = new Date();
-            el.textContent = now.toISOString().slice(0,19).replace('T',' ') + ' UTC';
-        }
-    }, 1000);
-</script>
+// Update timestamp every second 
+setInterval(() => { 
+    const el = document.getElementById('timestamp'); 
+    if (el) { 
+        const now = new Date(); 
+        el.textContent = now.toISOString().slice(0,19).replace('T',' ') + ' UTC'; 
+    } 
+}, 1000); 
+</script> 
 {% endblock %}
