@@ -6,6 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Security System{% endblock %}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -48,9 +49,7 @@
             margin: 0 auto;
             padding: 2rem;
         }
-        .flash-messages {
-            margin-bottom: 1rem;
-        }
+        .flash-messages { margin-bottom: 1rem; }
         .flash {
             padding: 0.75rem 1rem;
             border-radius: 0.375rem;
@@ -59,6 +58,43 @@
         .flash.error { background: #7f1d1d; color: #fecaca; border: 1px solid #dc2626; }
         .flash.success { background: #14532d; color: #bbf7d0; border: 1px solid #22c55e; }
         .flash.info { background: #1e3a5f; color: #bfdbfe; border: 1px solid #3b82f6; }
+        .btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 0.875rem;
+        }
+        .btn:hover { background: #2563eb; }
+        .btn-danger { background: #dc2626; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-small { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+        input, select {
+            background: #0f3460;
+            color: #fff;
+            border: 1px solid #334155;
+            padding: 0.5rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+        }
+        input:focus, select:focus { outline: none; border-color: #3b82f6; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+        th { background: #1e293b; color: #3b82f6; }
+        tr:hover { background: #16213e; }
+        .inline-form { display: inline-flex; gap: 0.5rem; align-items: center; }
         {% block extra_css %}{% endblock %}
     </style>
 <base target="_blank">
@@ -75,6 +111,7 @@
             {% endif %}
             <span style="color: #64748b;">|</span>
             <span style="color: #94a3b8;">{{ session.username }}</span>
+            <a href="{{ url_for('change_password') }}" style="color: #94a3b8; text-decoration: none; padding: 0.5rem 1rem;">Profile</a>
             <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
         </div>
     </nav>
@@ -95,7 +132,6 @@
     </div>
 
     <script>
-        // Prevent back-button cache issues
         if (window.history && window.history.pushState) {
             window.history.pushState(null, null, window.location.href);
             window.onpopstate = function() {
@@ -105,4 +141,5 @@
     </script>
     {% block extra_js %}{% endblock %}
 </body>
+</html></body>
 </html>
