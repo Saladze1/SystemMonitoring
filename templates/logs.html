@@ -1,63 +1,13 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>System Monitoring - Security Logs</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #1a1a2e;
-            color: #fff;
-            margin: 0;
-            padding: 20px;
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 20px 20px;
-            border-bottom: 2px solid #00aaff;
-        }
-        h1 {
-            color: #00aaff;
-            margin: 0;
-        }
-        .nav a {
-            color: #00aaff;
-            text-decoration: none;
-            margin-left: 20px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #0f3460;
-        }
-        th {
-            background: #0f3460;
-            color: #00aaff;
-        }
-        tr:hover {
-            background: #16213e;
-        }
-        .success { color: #00ff88; }
-        .fail { color: #ff4444; }
-        .timestamp { color: #aaa; font-size: 12px; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>📋 Security Access Logs</h1>
-        <div class="nav">
-            <a href="/camera">Back to Camera</a>
-            <a href="/logout">Logout</a>
-        </div>
-    </div>
-    
-    <table>
+{% extends "base.html" %}
+
+{% block title %}Security Logs{% endblock %}
+
+{% block content %}
+<h1>🔒 Security Access Logs</h1>
+
+{% if pagination %}
+<table>
+    <thead>
         <tr>
             <th>Time</th>
             <th>IP Address</th>
@@ -66,19 +16,39 @@
             <th>Status</th>
             <th>Details</th>
         </tr>
-        {% for log in logs %}
+    </thead>
+    <tbody>
+        {% for log in pagination.items %}
         <tr>
-            <td class="timestamp">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td style="color: #94a3b8; font-size: 0.875rem;">
+                {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+            </td>
             <td>{{ log.ip_address or 'N/A' }}</td>
             <td>{{ log.username or 'Anonymous' }}</td>
             <td>{{ log.action }}</td>
             <td class="{% if log.success %}success{% else %}fail{% endif %}">
-                {% if log.success %}✓ SUCCESS{% else %}✗ FAILED{% endif %}
+                {% if log.success %}✅ SUCCESS{% else %}❌ FAILED{% endif %}
             </td>
             <td>{{ log.details or '-' }}</td>
         </tr>
         {% endfor %}
-    </table>
-</body>
-</html>
+    </tbody>
+</table>
 
+<div style="display:flex; justify-content:space-between; align-items:center; margin-top:1.5rem; color:#94a3b8;">
+    {% if pagination.has_prev %}
+        <a href="{{ url_for('logs', page=pagination.prev_num) }}" class="btn">← Previous</a>
+    {% else %}
+        <span></span>
+    {% endif %}
+    <span>Page {{ pagination.page }} of {{ pagination.pages }} ({{ pagination.total }} total)</span>
+    {% if pagination.has_next %}
+        <a href="{{ url_for('logs', page=pagination.next_num) }}" class="btn">Next →</a>
+    {% else %}
+        <span></span>
+    {% endif %}
+</div>
+{% else %}
+<p style="color: #94a3b8;">Could not load logs.</p>
+{% endif %}
+{% endblock %}
