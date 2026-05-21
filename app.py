@@ -255,19 +255,31 @@ def inject_globals():
 # Camera Streaming Logic
 # =======================
 def gen_frames():
-    # 0 opens the default built-in hardware camera loop.
-    # Swap out 0 for an "rtsp://..." string if connecting a network/IP camera.
-    camera = cv2.VideoCapture(0)
-    while True:
-        success, frame = camera.read()
-        if not success:
-            break
-        else:
+    # Read camera source from environment variable.
+    # Set CAMERA_URL to an RTSP stream e.g. "rtsp://user:pass@192.168.1.10:554/stream"
+    # Leave unset (or set to "0") to use the local webcam (index 0).
+    camera_url = os.environ.get("CAMERA_URL", "0")
+    source = int(camera_url) if camera_url.isdigit() else camera_url
+
+    camera = cv2.VideoCapture(source)
+    if not camera.isOpened():
+        logger.error(f"Failed to open camera source: {source}")
+        return
+
+    try:
+        while True:
+            success, frame = camera.read()
+            if not success:
+                logger.warning("Camera read failed, stopping stream.")
+                break
             ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                continue
             frame = buffer.tobytes()
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-    camera.release()
+    finally:
+        camera.release()
 
 # =======================
 # Routes
@@ -351,9 +363,8 @@ def camera():
 def video_feed():
     if "user_id" not in session:
         return "Unauthorized", 401
-    return make_response(gen_frames(), {
-        'Content-Type': 'multipart/x-mixed-replace; boundary=frame'
-    })
+    from flask import Response
+    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route("/logs")
 @admin_required
@@ -499,14 +510,4 @@ def logout():
 
 @app.errorhandler(404)
 def not_found(e):
-    log_action("page_not_found", session.get("username"), False, f"404 on {request.path}")
-    return render_template("404.html"), 404
-
-@app.errorhandler(429)
-def rate_limited(e):
-    log_action("rate_limit", session.get("username"), False, "Rate limit exceeded")
-    flash("Too many requests. Please slow down.", "error")
-    return redirect(url_for("login")), 429
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    log_action("page_not_
