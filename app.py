@@ -1,30 +1,53 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g, make_response
-from flask_sqlalchemy import SQLAlchemy
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
-from sqlalchemy.exc import OperationalError
-from sqlalchemy import text
 import os
 import re
 import time
 import uuid
+import secrets
+import logging
+from datetime import datetime, timedelta
+from functools import wraps
 
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    session, flash, g, make_response
+)
+from flask_sqlalchemy import SQLAlchemy
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_wtf import CSRFProtect
+from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy.exc import OperationalError
+from sqlalchemy import text, inspect as sa_inspect
+
+# ── Logging ──────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# ── App Config ───────────────────────────────────
 app = Flask(__name__)
 
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-key-change-before-production')
+app.secret_key = os.environ.get("SECRET_KEY")
+if not app.secret_key:
+    raise RuntimeError(
+        "SECRET_KEY environment variable is required. "
+        "Generate a strong random string and set it before starting the app."
+    )
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE='Lax',
-    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "True").lower() == "true",
     PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
+    SQLALCHEMY_DATABASE_URI=os.environ.get("DATABASE_URL", "sqlite:///security.db"),
+    SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    WTF_CSRF_TIME_LIMIT=3600,
 )
 
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///security.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+csrf = CSRFProtect(app)
 
 limiter = Limiter(
     app=app,
@@ -32,17 +55,30 @@ limiter = Limiter(
     default_limits=["200 per day", "50 per hour"]
 )
 
+TRUST_PROXY = os.environ.get("TRUST_PROXY", "False").lower() == "true"
+
+
+# =======================
+# Models
+# =======================
+
 class User(db.Model):
+    __tablename__ = "user"
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), default='viewer')
+    role = db.Column(db.String(20), default="viewer")
     failed_attempts = db.Column(db.Integer, default=0)
     locked_until = db.Column(db.DateTime, nullable=True)
     active_session_token = db.Column(db.String(100), nullable=True)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
 
+    def is_locked(self):
+        return self.locked_until and self.locked_until > datetime.utcnow()
+
+
 class AccessLog(db.Model):
+    __tablename__ = "access_log"
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     ip_address = db.Column(db.String(45))
@@ -51,77 +87,46 @@ class AccessLog(db.Model):
     success = db.Column(db.Boolean)
     details = db.Column(db.Text)
 
-def auto_migrate():
-    """Auto-add missing columns to existing database."""
-    try:
-        with app.app_context():
-            # Check if columns exist using raw SQL (works across DB types)
-            inspector = db.inspect(db.engine)
-            columns = [col['name'] for col in inspector.get_columns('user')]
 
-            if 'active_session_token' not in columns:
-                print("Adding active_session_token column...")
-                with db.engine.connect() as conn:
-                    conn.execute(text('ALTER TABLE "user" ADD COLUMN active_session_token VARCHAR(100)'))
-                    conn.commit()
-                print("active_session_token added.")
+# =======================
+# Helpers
+# =======================
 
-            if 'last_seen' not in columns:
-                print("Adding last_seen column...")
-                with db.engine.connect() as conn:
-                    conn.execute(text('ALTER TABLE "user" ADD COLUMN last_seen TIMESTAMP'))
-                    conn.commit()
-                print("last_seen added.")
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "user_id" not in session or session.get("role") != "admin":
+            log_action(
+                "unauthorized_access",
+                session.get("username"),
+                False,
+                "Non-admin accessed admin route"
+            )
+            flash("Admin access required.", "error")
+            return redirect(url_for("camera"))
+        return f(*args, **kwargs)
+    return decorated_function
 
-    except Exception as e:
-        print(f"Migration note: {e}")
-        print("If this is a fresh DB, tables will be created by db.create_all()")
-
-def init_db_with_retry(max_retries=10, delay=3):
-    for attempt in range(max_retries):
-        try:
-            with app.app_context():
-                db.create_all()
-
-                # Run auto-migration for existing databases
-                auto_migrate()
-
-                if not User.query.filter_by(username='admin').first():
-                    admin = User(
-                        username='admin',
-                        password_hash=generate_password_hash('admin123'),
-                        role='admin'
-                    )
-                    db.session.add(admin)
-                    db.session.commit()
-                    print("Admin user created.")
-                print("Database initialized successfully.")
-                return True
-        except OperationalError as e:
-            print(f"DB connection attempt {attempt + 1}/{max_retries} failed: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(delay)
-            else:
-                print("WARNING: Could not connect to database after all retries.")
-                return False
-        except Exception as e:
-            print(f"Unexpected error during DB init: {e}")
-            return False
-    return False
-
-db_ready = init_db_with_retry()
-
-def sanitize_input(text):
-    if not text:
-        return ''
-    return re.sub(r'[^\w\-]', '', text.strip())[:80]
 
 def get_client_ip():
-    if request.headers.get('X-Forwarded-For'):
-        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    if TRUST_PROXY and request.headers.get("X-Forwarded-For"):
+        return request.headers.get("X-Forwarded-For").split(",")[0].strip()
     return request.remote_addr
 
-def log_action(action, username=None, success=False, details=''):
+
+def sanitize_input(value):
+    if not value:
+        return ""
+    return re.sub(r"[^\w\s-]", "", str(value).strip())[:80]
+
+
+def validate_password(password):
+    if not password or len(password) < 8:
+        return "Password must be at least 8 characters long."
+    return None
+
+
+def log_action(action, username=None, success=False, details=""):
     if not db_ready:
         return
     try:
@@ -130,60 +135,144 @@ def log_action(action, username=None, success=False, details=''):
             username=sanitize_input(username) if username else None,
             action=action,
             success=success,
-            details=details[:500]
+            details=str(details)[:500]
         )
         db.session.add(log)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f"Failed to log action: {e}")
+        logger.error(f"Failed to log action: {e}")
 
-def is_account_locked(user):
-    if user.locked_until and user.locked_until > datetime.utcnow():
-        return True
+
+# =======================
+# Database Init
+# =======================
+
+def auto_migrate():
+    try:
+        with app.app_context():
+            inspector = sa_inspect(db.engine)
+            columns = [col["name"] for col in inspector.get_columns("user")]
+            dialect = db.engine.dialect.name
+            table_name = '"user"' if dialect == "postgresql" else "user"
+
+            with db.engine.connect() as conn:
+                if "active_session_token" not in columns:
+                    logger.info("Adding active_session_token column...")
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN active_session_token VARCHAR(100)"
+                    ))
+                    conn.commit()
+                    logger.info("active_session_token added.")
+
+                if "last_seen" not in columns:
+                    logger.info("Adding last_seen column...")
+                    col_type = "TIMESTAMP" if dialect == "postgresql" else "DATETIME"
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN last_seen {col_type}"
+                    ))
+                    conn.commit()
+                    logger.info("last_seen added.")
+    except Exception as e:
+        logger.warning(f"Migration note: {e}")
+        logger.info("If this is a fresh DB, tables will be created by db.create_all().")
+
+
+def init_db_with_retry(max_retries=10, delay=3):
+    for attempt in range(max_retries):
+        try:
+            with app.app_context():
+                db.create_all()
+                auto_migrate()
+
+                if not User.query.filter_by(username="admin").first():
+                    admin_password = os.environ.get("ADMIN_PASSWORD")
+                    if not admin_password:
+                        admin_password = secrets.token_urlsafe(16)
+                        logger.warning("=" * 60)
+                        logger.warning("ADMIN_PASSWORD environment variable not set!")
+                        logger.warning(f"Temporary admin password: {admin_password}")
+                        logger.warning("Log in immediately and change this password.")
+                        logger.warning("=" * 60)
+
+                    admin = User(
+                        username="admin",
+                        password_hash=generate_password_hash(admin_password),
+                        role="admin"
+                    )
+                    db.session.add(admin)
+                    db.session.commit()
+                    logger.info("Admin user created.")
+
+                logger.info("Database initialized successfully.")
+                return True
+        except OperationalError as e:
+            logger.warning(f"DB connection attempt {attempt + 1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+        except Exception as e:
+            logger.error(f"Unexpected error during DB init: {e}")
+            return False
+    logger.error("WARNING: Could not connect to database after all retries.")
     return False
 
+
+db_ready = init_db_with_retry()
+
+
+# =======================
+# Global Hooks
+# =======================
+
 @app.after_request
-def add_no_cache_headers(response):
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
+def add_security_headers(response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none';"
+    )
+    response.headers["X-Frame-Options"] = "DENY"
     return response
+
 
 @app.before_request
 def validate_session():
-    public_routes = ['login', 'static', 'logout']
-
+    public_routes = {"login", "static", "logout", "not_found"}
     if request.endpoint in public_routes:
         return
 
-    if 'user_id' not in session or 'session_token' not in session:
-        return redirect(url_for('login'))
+    if "user_id" not in session or "session_token" not in session:
+        return redirect(url_for("login"))
 
     try:
-        user = User.query.get(session.get('user_id'))
+        user = User.query.get(session.get("user_id"))
 
         if not user:
             session.clear()
-            flash('Session expired. Please log in again.', 'error')
-            return redirect(url_for('login'))
+            flash("Session expired. Please log in again.", "error")
+            return redirect(url_for("login"))
 
-        if is_account_locked(user):
+        if user.is_locked():
             session.clear()
-            flash('Account locked. Contact administrator.', 'error')
-            return redirect(url_for('login'))
+            flash("Account locked. Contact administrator.", "error")
+            return redirect(url_for("login"))
 
-        if user.active_session_token != session.get('session_token'):
+        if user.active_session_token != session.get("session_token"):
             session.clear()
-            flash('Session invalidated. Please log in again.', 'error')
-            return redirect(url_for('login'))
+            flash("Session invalidated. Please log in again.", "error")
+            return redirect(url_for("login"))
 
-        if 'login_time' in session:
-            login_time = datetime.fromisoformat(session['login_time'])
+        if "login_time" in session:
+            login_time = datetime.fromisoformat(session["login_time"])
             if datetime.utcnow() - login_time > timedelta(minutes=30):
                 session.clear()
-                flash('Session expired. Please log in again.', 'error')
-                return redirect(url_for('login'))
+                flash("Session expired. Please log in again.", "error")
+                return redirect(url_for("login"))
 
         user.last_seen = datetime.utcnow()
         db.session.commit()
@@ -192,56 +281,67 @@ def validate_session():
     except Exception as e:
         db.session.rollback()
         session.clear()
-        flash('Session error. Please log in again.', 'error')
-        return redirect(url_for('login'))
+        flash("Session error. Please log in again.", "error")
+        return redirect(url_for("login"))
+
 
 @app.context_processor
 def inject_globals():
-    return dict(session=session, now=datetime.utcnow())
+    return dict(session=session, now=datetime.utcnow)
 
-@app.route('/')
+
+# =======================
+# Routes
+# =======================
+
+@app.route("/")
 def index():
-    if 'user_id' in session:
-        return redirect(url_for('camera'))
-    return redirect(url_for('login'))
+    if "user_id" in session:
+        return redirect(url_for("camera"))
+    return redirect(url_for("login"))
 
-@app.route('/login', methods=['GET', 'POST'])
+
+@app.route("/login", methods=["GET", "POST"])
 @limiter.limit("5 per minute")
 def login():
-    if 'user_id' in session:
+    if "user_id" in session:
         try:
-            user = User.query.get(session['user_id'])
-            if user and user.active_session_token == session.get('session_token') and not is_account_locked(user):
-                return redirect(url_for('camera'))
-        except:
+            user = User.query.get(session["user_id"])
+            if (
+                user
+                and user.active_session_token == session.get("session_token")
+                and not user.is_locked()
+            ):
+                return redirect(url_for("camera"))
+        except Exception:
             pass
         session.clear()
 
-    if request.method == 'POST':
-        username = sanitize_input(request.form.get('username'))
-        password = request.form.get('password', '')
+    if request.method == "POST":
+        username = sanitize_input(request.form.get("username"))
+        password = request.form.get("password", "")
 
         try:
             user = User.query.filter_by(username=username).first()
 
             if not user:
-                log_action('login_attempt', username, False, 'User not found')
-                flash('Invalid credentials', 'error')
-                return redirect(url_for('login'))
+                log_action("login_attempt", username, False, "User not found")
+                flash("Invalid credentials", "error")
+                return redirect(url_for("login"))
 
-            if is_account_locked(user):
-                log_action('login_attempt', username, False, 'Account locked')
-                flash('Account temporarily locked. Try again later.', 'error')
-                return redirect(url_for('login'))
+            if user.is_locked():
+                log_action("login_attempt", username, False, "Account locked")
+                flash("Account temporarily locked. Try again later.", "error")
+                return redirect(url_for("login"))
 
             if check_password_hash(user.password_hash, password):
                 new_token = str(uuid.uuid4())
                 session.clear()
-                session['user_id'] = user.id
-                session['username'] = user.username
-                session['role'] = user.role
-                session['session_token'] = new_token
-                session['login_time'] = datetime.utcnow().isoformat()
+                session["user_id"] = user.id
+                session["username"] = user.username
+                session["role"] = user.role
+                session["session_token"] = new_token
+                session["login_time"] = datetime.utcnow().isoformat()
                 session.modified = True
 
                 user.failed_attempts = 0
@@ -250,90 +350,101 @@ def login():
                 user.last_seen = datetime.utcnow()
                 db.session.commit()
 
-                log_action('login_attempt', username, True, 'Successful login')
-                response = make_response(redirect(url_for('camera')))
-                return response
+                log_action("login_attempt", username, True, "Successful login")
+                return redirect(url_for("camera"))
             else:
                 user.failed_attempts += 1
 
                 if user.failed_attempts >= 5:
                     user.locked_until = datetime.utcnow() + timedelta(minutes=15)
-                    log_action('login_attempt', username, False, 'Account locked after 5 failed attempts')
-                    flash('Too many failed attempts. Account locked for 15 minutes.', 'error')
+                    log_action(
+                        "login_attempt",
+                        username,
+                        False,
+                        "Account locked after 5 failed attempts"
+                    )
+                    flash("Too many failed attempts. Account locked for 15 minutes.", "error")
                 else:
-                    log_action('login_attempt', username, False, f'Failed attempt {user.failed_attempts}/5')
-                    flash('Invalid credentials', 'error')
+                    log_action(
+                        "login_attempt",
+                        username,
+                        False,
+                        f"Failed attempt {user.failed_attempts}/5"
+                    )
+                    flash("Invalid credentials", "error")
 
                 db.session.commit()
-                return redirect(url_for('login'))
+                return redirect(url_for("login"))
 
         except Exception as e:
             db.session.rollback()
-            print(f"Login error: {e}")
-            flash('An error occurred. Please try again.', 'error')
-            return redirect(url_for('login'))
+            logger.error(f"Login error: {e}")
+            flash("An error occurred. Please try again.", "error")
+            return redirect(url_for("login"))
 
-    response = make_response(render_template('login.html'))
-    return response
+    return render_template("login.html")
 
-@app.route('/camera')
+
+@app.route("/camera")
 def camera():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
-    log_action('camera_view', session.get('username'), True, 'Viewed camera feed')
-    return render_template('camera.html')
+    log_action("camera_view", session.get("username"), True, "Viewed camera feed")
+    return render_template("camera.html")
 
-@app.route('/logs')
+
+@app.route("/logs")
+@admin_required
 def logs():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
-    if session.get('role') != 'admin':
-        log_action('unauthorized_access', session.get('username'), False, 'Non-admin tried to access logs')
-        return redirect(url_for('camera'))
-
+    page = request.args.get("page", 1, type=int)
+    per_page = 50
     try:
-        all_logs = AccessLog.query.order_by(AccessLog.timestamp.desc()).limit(1000).all()
+        pagination = AccessLog.query.order_by(
+            AccessLog.timestamp.desc()
+        ).paginate(page=page, per_page=per_page, error_out=False)
     except Exception as e:
-        flash('Error loading logs', 'error')
-        all_logs = []
+        logger.error(f"Error loading logs: {e}")
+        flash("Error loading logs", "error")
+        pagination = None
 
-    return render_template('logs.html', logs=all_logs)
+    return render_template("logs.html", pagination=pagination)
 
-@app.route('/users')
+
+@app.route("/users")
+@admin_required
 def users():
-    if 'user_id' not in session or session.get('role') != 'admin':
-        log_action('unauthorized_access', session.get('username'), False, 'Non-admin tried to access user management')
-        return redirect(url_for('camera'))
-
     try:
         all_users = User.query.order_by(User.username).all()
     except Exception as e:
-        flash('Error loading users', 'error')
+        logger.error(f"Error loading users: {e}")
+        flash("Error loading users", "error")
         all_users = []
+    return render_template("users.html", users=all_users)
 
-    return render_template('users.html', users=all_users)
 
-@app.route('/users/add', methods=['POST'])
+@app.route("/users/add", methods=["POST"])
+@admin_required
 def add_user():
-    if 'user_id' not in session or session.get('role') != 'admin':
-        return redirect(url_for('camera'))
-
-    username = sanitize_input(request.form.get('username'))
-    password = request.form.get('password', '')
-    role = request.form.get('role', 'viewer')
+    username = sanitize_input(request.form.get("username"))
+    password = request.form.get("password", "")
+    role = request.form.get("role", "viewer")
 
     if not username or not password:
-        flash('Username and password required', 'error')
-        return redirect(url_for('users'))
+        flash("Username and password required", "error")
+        return redirect(url_for("users"))
+
+    pwd_error = validate_password(password)
+    if pwd_error:
+        flash(pwd_error, "error")
+        return redirect(url_for("users"))
 
     if User.query.filter_by(username=username).first():
-        flash('Username already exists', 'error')
-        return redirect(url_for('users'))
+        flash("Username already exists", "error")
+        return redirect(url_for("users"))
 
-    if role not in ['viewer', 'admin']:
-        role = 'viewer'
+    if role not in ["viewer", "admin"]:
+        role = "viewer"
 
     new_user = User(
         username=username,
@@ -343,21 +454,30 @@ def add_user():
     db.session.add(new_user)
     db.session.commit()
 
-    log_action('user_management', session.get('username'), True, f'Created user {username} with role {role}')
-    flash(f'User {username} created successfully', 'success')
-    return redirect(url_for('users'))
+    log_action(
+        "user_management",
+        session.get("username"),
+        True,
+        f"Created user {username} with role {role}"
+    )
+    flash(f"User {username} created successfully", "success")
+    return redirect(url_for("users"))
 
-@app.route('/users/reset-password/<int:user_id>', methods=['POST'])
+
+@app.route("/users/reset-password/<int:user_id>", methods=["POST"])
+@admin_required
 def reset_password(user_id):
-    if 'user_id' not in session or session.get('role') != 'admin':
-        return redirect(url_for('camera'))
-
     user = User.query.get_or_404(user_id)
-    new_password = request.form.get('new_password', '')
+    new_password = request.form.get("new_password", "")
 
     if not new_password:
-        flash('Password cannot be empty', 'error')
-        return redirect(url_for('users'))
+        flash("Password cannot be empty", "error")
+        return redirect(url_for("users"))
+
+    pwd_error = validate_password(new_password)
+    if pwd_error:
+        flash(pwd_error, "error")
+        return redirect(url_for("users"))
 
     user.password_hash = generate_password_hash(new_password)
     user.failed_attempts = 0
@@ -365,71 +485,134 @@ def reset_password(user_id):
     user.active_session_token = None
     db.session.commit()
 
-    log_action('user_management', session.get('username'), True, f'Reset password for {user.username}')
-    flash(f'Password reset for {user.username}', 'success')
-    return redirect(url_for('users'))
+    log_action(
+        "user_management",
+        session.get("username"),
+        True,
+        f"Reset password for {user.username}"
+    )
+    flash(f"Password reset for {user.username}", "success")
+    return redirect(url_for("users"))
 
-@app.route('/users/delete/<int:user_id>', methods=['POST'])
+
+@app.route("/users/delete/<int:user_id>", methods=["POST"])
+@admin_required
 def delete_user(user_id):
-    if 'user_id' not in session or session.get('role') != 'admin':
-        return redirect(url_for('camera'))
-
     user = User.query.get_or_404(user_id)
 
-    if user.username == 'admin':
-        flash('Cannot delete the default admin account', 'error')
-        return redirect(url_for('users'))
+    if user.username == "admin":
+        flash("Cannot delete the default admin account", "error")
+        return redirect(url_for("users"))
 
-    if user.id == session.get('user_id'):
-        flash('Cannot delete your own account', 'error')
-        return redirect(url_for('users'))
+    if user.id == session.get("user_id"):
+        flash("Cannot delete your own account", "error")
+        return redirect(url_for("users"))
 
     username = user.username
     db.session.delete(user)
     db.session.commit()
 
-    log_action('user_management', session.get('username'), True, f'Deleted user {username}')
-    flash(f'User {username} deleted', 'success')
-    return redirect(url_for('users'))
+    log_action(
+        "user_management",
+        session.get("username"),
+        True,
+        f"Deleted user {username}"
+    )
+    flash(f"User {username} deleted", "success")
+    return redirect(url_for("users"))
 
-@app.route('/users/unlock/<int:user_id>', methods=['POST'])
+
+@app.route("/users/unlock/<int:user_id>", methods=["POST"])
+@admin_required
 def unlock_user(user_id):
-    if 'user_id' not in session or session.get('role') != 'admin':
-        return redirect(url_for('camera'))
-
     user = User.query.get_or_404(user_id)
     user.failed_attempts = 0
     user.locked_until = None
     db.session.commit()
 
-    log_action('user_management', session.get('username'), True, f'Unlocked account {user.username}')
-    flash(f'Account {user.username} unlocked', 'success')
-    return redirect(url_for('users'))
+    log_action(
+        "user_management",
+        session.get("username"),
+        True,
+        f"Unlocked account {user.username}"
+    )
+    flash(f"Account {user.username} unlocked", "success")
+    return redirect(url_for("users"))
 
-@app.route('/logout')
+
+@app.route("/change-password", methods=["GET", "POST"])
+def change_password():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        user = User.query.get(session["user_id"])
+        if not user or not check_password_hash(user.password_hash, current_password):
+            flash("Current password is incorrect.", "error")
+            return redirect(url_for("change_password"))
+
+        if new_password != confirm_password:
+            flash("New passwords do not match.", "error")
+            return redirect(url_for("change_password"))
+
+        pwd_error = validate_password(new_password)
+        if pwd_error:
+            flash(pwd_error, "error")
+            return redirect(url_for("change_password"))
+
+        user.password_hash = generate_password_hash(new_password)
+        new_token = str(uuid.uuid4())
+        user.active_session_token = new_token
+        session["session_token"] = new_token
+        db.session.commit()
+
+        log_action(
+            "password_change",
+            session.get("username"),
+            True,
+            "User changed their password"
+        )
+        flash(
+            "Password changed successfully. Please use your new password next time.",
+            "success"
+        )
+        return redirect(url_for("camera"))
+
+    return render_template("change_password.html")
+
+
+@app.route("/logout")
 def logout():
-    if 'user_id' in session:
+    if "user_id" in session:
         try:
-            user = User.query.get(session['user_id'])
+            user = User.query.get(session["user_id"])
             if user:
                 user.active_session_token = None
                 db.session.commit()
-        except:
+        except Exception:
             pass
-        log_action('logout', session.get('username'), True, 'User logged out')
+        log_action("logout", session.get("username"), True, "User logged out")
     session.clear()
-    flash('You have been logged out.', 'info')
-    return redirect(url_for('login'))
+    flash("You have been logged out.", "info")
+    return redirect(url_for("login"))
+
 
 @app.errorhandler(404)
 def not_found(e):
-    log_action('unauthorized_access', session.get('username'), False, f'404 on {request.path}')
-    return redirect(url_for('login'))
+    log_action("page_not_found", session.get("username"), False, f"404 on {request.path}")
+    return render_template("404.html"), 404
+
 
 @app.errorhandler(429)
 def rate_limited(e):
-    log_action('login_attempt', None, False, 'Rate limit exceeded')
-    return redirect(url_for('login'))
+    log_action("rate_limit", session.get("username"), False, "Rate limit exceeded")
+    flash("Too many requests. Please slow down.", "error")
+    return redirect(url_for("login")), 429
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
