@@ -40,11 +40,17 @@
     overflow: hidden; 
     min-height: 300px; 
 } 
-.camera-feed img { 
+.camera-feed video { 
     width: 100%; 
     height: 100%; 
     object-fit: cover; 
-} 
+}
+.camera-offline {
+    color: #64748b;
+    text-align: center;
+    padding: 2rem;
+    display: none;
+}
 .camera-info { 
     padding: 1rem 1.5rem; 
     display: flex; 
@@ -70,7 +76,11 @@
     </div> 
     
     <div class="camera-feed" id="feedContainer"> 
-        <img src="{{ url_for('video_feed') }}" alt="Live Security Feed Unavailable" onerror="handleStreamError()"> 
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <div class="camera-offline" id="offlineMsg">
+            <p style="font-size:1.25rem; margin-bottom:0.5rem;">⚠ Camera Unavailable</p>
+            <p style="font-size:0.875rem;">Permission denied or no camera found.</p>
+        </div>
     </div> 
     
     <div class="camera-info"> 
@@ -82,15 +92,28 @@
 
 {% block extra_js %} 
 <script> 
-function handleStreamError() {
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    if(statusDot && statusText) {
-        statusDot.style.background = '#dc2626';
-        statusText.textContent = 'ERROR / OFFLINE';
-        statusText.style.color = '#dc2626';
-    }
+const video = document.getElementById('cameraVideo');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const offlineMsg = document.getElementById('offlineMsg');
+
+function setOffline(reason) {
+    statusDot.style.background = '#dc2626';
+    statusText.textContent = 'OFFLINE';
+    statusText.style.color = '#dc2626';
+    video.style.display = 'none';
+    offlineMsg.style.display = 'block';
+    console.warn('Camera offline:', reason);
 }
+
+navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    .then(stream => {
+        video.srcObject = stream;
+        statusDot.style.background = '#22c55e';
+        statusText.textContent = 'LIVE';
+        statusText.style.color = '#22c55e';
+    })
+    .catch(err => setOffline(err.message));
 
 // Update timestamp every second 
 setInterval(() => { 
@@ -102,3 +125,4 @@ setInterval(() => {
 }, 1000); 
 </script> 
 {% endblock %}
+
