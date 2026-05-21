@@ -56,16 +56,19 @@
     text-align: center;
     padding: 1rem;
 }
-.start-btn {
-    background: #3b82f6;
-    color: white;
+.ctrl-btn {
     border: none;
     padding: 0.75rem 1.5rem;
     border-radius: 0.5rem;
     font-size: 1rem;
     cursor: pointer;
+    color: white;
 }
+.start-btn { background: #3b82f6; }
 .start-btn:hover { background: #2563eb; }
+.stop-btn { background: #ef4444; }
+.stop-btn:hover { background: #dc2626; }
+
 .camera-info { 
     padding: 1rem 1.5rem; 
     display: flex; 
@@ -92,7 +95,7 @@
         <video id="cameraVideo" autoplay playsinline muted></video>
         <div class="camera-overlay" id="overlay">
             <p id="overlayMsg">Click the button to access camera</p>
-            <button class="start-btn" id="startBtn">▶ Start Camera</button>
+            <button class="ctrl-btn start-btn" id="actionBtn">▶ Start Camera</button>
         </div>
     </div> 
     
@@ -109,7 +112,9 @@ const video = document.getElementById('cameraVideo');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const overlay = document.getElementById('overlay');
-const startBtn = document.getElementById('startBtn');
+const actionBtn = document.getElementById('actionBtn');
+
+let currentStream = null;
 
 function setStatus(color, text) {
     statusDot.style.background = color;
@@ -122,9 +127,13 @@ function startCamera() {
     
     navigator.mediaDevices.getUserMedia({ video: true, audio: false })
         .then(stream => {
+            currentStream = stream;
             video.srcObject = stream;
             overlay.style.display = 'none';
             setStatus('#22c55e', 'LIVE');
+            
+            actionBtn.textContent = '⏹ Stop Camera';
+            actionBtn.className = 'ctrl-btn stop-btn';
         })
         .catch(err => {
             setStatus('#dc2626', 'OFFLINE');
@@ -133,8 +142,27 @@ function startCamera() {
         });
 }
 
-// Added Event Listener to bind the function securely
-startBtn.addEventListener('click', startCamera);
+function stopCamera() {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+        currentStream = null;
+        
+        overlay.style.display = 'flex';
+        setStatus('#94a3b8', 'READY');
+        
+        actionBtn.textContent = '▶ Start Camera';
+        actionBtn.className = 'ctrl-btn start-btn';
+    }
+}
+
+actionBtn.addEventListener('click', () => {
+    if (currentStream) {
+        stopCamera();
+    } else {
+        startCamera();
+    }
+});
 
 // Update timestamp
 setInterval(() => { 
