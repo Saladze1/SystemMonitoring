@@ -204,6 +204,7 @@ def add_security_headers(response):
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
+        "media-src blob:; "
         "frame-ancestors 'none';"
     )
     response.headers["X-Frame-Options"] = "DENY"
