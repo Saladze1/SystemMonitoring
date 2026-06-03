@@ -1,11 +1,21 @@
-{% extends "base.html" %}
-
-{% block title %}Security Logs{% endblock %}
-
-{% block content %}
 <h1>🔒 Security Access Logs</h1>
 
-{% if pagination %}
+<div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center;">
+    <!-- Filter buttons -->
+    <div style="display: flex; gap: 0.5rem;">
+        <a href="{{ url_for('logs', filter='all', page=1) }}" class="btn {% if filter_type == 'all' %}active{% endif %}" style="{% if filter_type == 'all' %}background: #2563eb;{% endif %}">All Logs</a>
+        <a href="{{ url_for('logs', filter='today', page=1) }}" class="btn {% if filter_type == 'today' %}active{% endif %}" style="{% if filter_type == 'today' %}background: #2563eb;{% endif %}">Today</a>
+        <a href="{{ url_for('logs', filter='week', page=1) }}" class="btn {% if filter_type == 'week' %}active{% endif %}" style="{% if filter_type == 'week' %}background: #2563eb;{% endif %}">Last 7 Days</a>
+    </div>
+    
+    <!-- Delete old logs button (admin only) -->
+    <form method="POST" action="{{ url_for('delete_old_logs') }}" onsubmit="return confirm('Delete all logs older than 7 days? This cannot be undone.');" style="margin-left: auto;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger">Delete Logs > 7 days old</button>
+    </form>
+</div>
+
+{% if pagination.items %}
 <table>
     <thead>
         <tr>
@@ -20,10 +30,7 @@
     <tbody>
         {% for log in pagination.items %}
         <tr>
-            <td style="color: #94a3b8; font-size: 0.875rem;">
-                {# We cast the timezone here to ensure it displays as Asia/Manila #}
-                {{ log.display_time }}
-            </td>
+            <td style="color: #94a3b8; font-size: 0.875rem;">{{ log.display_time }}</td>
             <td>{{ log.ip_address or 'N/A' }}</td>
             <td>{{ log.username or 'Anonymous' }}</td>
             <td>{{ log.action }}</td>
@@ -38,18 +45,17 @@
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1.5rem; color:#94a3b8;">
     {% if pagination.has_prev %}
-        <a href="{{ url_for('logs', page=pagination.prev_num) }}" class="btn">← Previous</a>
+        <a href="{{ url_for('logs', page=pagination.prev_num, filter=filter_type) }}" class="btn">← Previous</a>
     {% else %}
         <span></span>
     {% endif %}
     <span>Page {{ pagination.page }} of {{ pagination.pages }} ({{ pagination.total }} total)</span>
     {% if pagination.has_next %}
-        <a href="{{ url_for('logs', page=pagination.next_num) }}" class="btn">Next →</a>
+        <a href="{{ url_for('logs', page=pagination.next_num, filter=filter_type) }}" class="btn">Next →</a>
     {% else %}
         <span></span>
     {% endif %}
 </div>
 {% else %}
-<p style="color: #94a3b8;">Could not load logs.</p>
+<p style="color: #94a3b8;">No logs found for this filter.</p>
 {% endif %}
-{% endblock %}
