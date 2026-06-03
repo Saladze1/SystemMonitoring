@@ -114,7 +114,8 @@ def log_action(action, username=None, success=False, details=""):
 @app.before_request
 def validate_session():
     public_routes = {"login", "static", "logout", "not_found"}
-    if request.endpoint in public_routes: return
+    if request.endpoint in public_routes:
+        return
     
     if "user_id" not in session or "session_token" not in session:
         return redirect(url_for("login"))
@@ -138,7 +139,214 @@ def validate_session():
 def inject_globals():
     return dict(session=session, now=get_ph_now)
 
-# (Add your existing route implementations here, using get_ph_now() instead of datetime.utcnow())
+# =======================
+# Routes
+# =======================
+@app.route("/")
+def index():
+    if "user_id" in session:
+        return redirect(url_for("camera"))
+    return redirect(url_for("login"))
+
+@app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
+def login():
+    if request.method == "POST":
+        username = sanitize_input(request.form.get("username", ""))
+        password = request.form.get("password", "")
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user and user.is_locked():
+            flash("Account is temporarily locked. Try again later.", "error")
+            log_action("login_locked", username, False, "Account locked")
+            return redirect(url_for("login"))
+        
+        if user and check_password_hash(user.password_hash, password):
+            # Successful login
+            user.failed_attempts = 0
+            user.locked_until = None
+            session_token = secrets.token_urlsafe(32)
+            user.active_session_token = session_token
+            db.session.commit()
+            
+            session.clear()
+            session["user_id"] = user.id
+            session["username"] = user.username
+            session["role"] = user.role
+            session["session_token"] = session_token
+            session["login_time"] = get_ph_now().isoformat()
+            session.permanent = True
+            
+            log_action("login", username, True, "Successful login")
+            flash(f"Welcome back, {username}!", "success")
+            return redirect(url_for("camera"))
+        else:
+            # Failed login
+            if user:
+                user.failed_attempts += 1
+                if user.failed_attempts >= 5:
+                    user.locked_until = get_ph_now() + timedelta(minutes=15)
+                    flash("Too many failed attempts. Account locked for 15 minutes.", "error")
+                    log_action("login_locked", username, False, "Locked after 5 failures")
+                db.session.commit()
+            log_action("login", username, False, "Invalid credentials")
+            flash("Invalid username or password.", "error")
+        return redirect(url_for("login"))
+    
+    return render_template("login.html")
+
+@app.route("/logout")
+def logout():
+    if "user_id" in session:
+        user = User.query.get(session["user_id"])
+        if user:
+            user.active_session_token = None
+            db.session.commit()
+            log_action("logout", session.get("username"), True, "User logged out")
+    session.clear()
+    flash("You have been logged out.", "info")
+    return redirect(url_for("login"))
+
+@app.route("/camera")
+def camera():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    return render_template("camera.html")
+
+@app.route("/logs")
+@admin_required
+def logs():
+    page = request.args.get("page", 1, type=int)
+    per_page = 20
+    pagination = AccessLog.query.order_by(AccessLog.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    return render_template("logs.html", pagination=pagination)
+
+@app.route("/users")
+@admin_required
+def users():
+    # For admin to manage users (list, add, delete, change role)
+    all_users = User.query.all()
+    return render_template("users.html", users=all_users)
+
+@app.route("/users/add", methods=["POST"])
+@admin_required
+def add_user():
+    username = sanitize_input(request.form.get("username", ""))
+    password = request.form.get("password", "")
+    role = request.form.get("role", "viewer")
+    
+    if not username or not password:
+        flash("Username and password required.", "error")
+        return redirect(url_for("users"))
+    
+    if User.query.filter_by(username=username).first():
+        flash("Username already exists.", "error")
+        return redirect(url_for("users"))
+    
+    new_user = User(
+        username=username,
+        password_hash=generate_password_hash(password),
+        role=role
+    )
+    db.session.add(new_user)
+    db.session.commit()
+    log_action("add_user", session.get("username"), True, f"Added user {username}")
+    flash(f"User {username} added.", "success")
+    return redirect(url_for("users"))
+
+@app.route("/users/delete/<int:user_id>", methods=["POST"])
+@admin_required
+def delete_user(user_id):
+    user = User.query.get(user_id)
+    if user and user.username != session.get("username"):  # can't delete self
+        db.session.delete(user)
+        db.session.commit()
+        log_action("delete_user", session.get("username"), True, f"Deleted user {user.username}")
+        flash(f"User {user.username} deleted.", "success")
+    else:
+        flash("Cannot delete yourself.", "error")
+    return redirect(url_for("users"))
+
+@app.route("/users/update_role/<int:user_id>", methods=["POST"])
+@admin_required
+def update_role(user_id):
+    user = User.query.get(user_id)
+    if user and user.username != session.get("username"):
+        new_role = request.form.get("role")
+        if new_role in ["admin", "viewer"]:
+            user.role = new_role
+            db.session.commit()
+            log_action("update_role", session.get("username"), True, f"User {user.username} role -> {new_role}")
+            flash(f"Role updated for {user.username}.", "success")
+    else:
+        flash("Cannot change your own role here.", "error")
+    return redirect(url_for("users"))
+
+@app.route("/change_password", methods=["GET", "POST"])
+def change_password():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    
+    user = User.query.get(session["user_id"])
+    if request.method == "POST":
+        current = request.form.get("current_password", "")
+        new = request.form.get("new_password", "")
+        confirm = request.form.get("confirm_password", "")
+        
+        if not check_password_hash(user.password_hash, current):
+            flash("Current password is incorrect.", "error")
+            log_action("change_password", user.username, False, "Incorrect current password")
+            return redirect(url_for("change_password"))
+        
+        if len(new) < 8:
+            flash("New password must be at least 8 characters.", "error")
+            return redirect(url_for("change_password"))
+        
+        if new != confirm:
+            flash("New passwords do not match.", "error")
+            return redirect(url_for("change_password"))
+        
+        user.password_hash = generate_password_hash(new)
+        # Force re-login after password change
+        user.active_session_token = None
+        db.session.commit()
+        log_action("change_password", user.username, True, "Password changed")
+        session.clear()
+        flash("Password changed. Please log in again.", "success")
+        return redirect(url_for("login"))
+    
+    return render_template("change_password.html")
+
+# =======================
+# Error handlers
+# =======================
+@app.errorhandler(404)
+def not_found(e):
+    return render_template("404.html"), 404
+
+@app.errorhandler(429)
+def ratelimit_exceeded(e):
+    flash("Too many requests. Please slow down.", "error")
+    return redirect(url_for("login"))
+
+# =======================
+# Database initialization (create tables & admin user)
+# =======================
+def init_db():
+    with app.app_context():
+        db.create_all()
+        # Create admin user if none exists
+        if User.query.count() == 0:
+            admin = User(
+                username="admin",
+                password_hash=generate_password_hash("admin123"),
+                role="admin"
+            )
+            db.session.add(admin)
+            db.session.commit()
+            logger.info("Created default admin user: admin / admin123")
 
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=5000, debug=False)
