@@ -223,7 +223,7 @@ def logs():
     
     # Pre‑convert timestamps to PHT
     for log in pagination.items:
-        log.display_time = log.timestamp.astimezone(PH_TZ).strftime('%Y-%m-%d %H:%M:%S')
+        log.display_time = log.timestamp.astimezone(PH_TZ).strftime('%Y-%m-%d %I:%M:%S %p')
     
     return render_template("logs.html", pagination=pagination)
 
