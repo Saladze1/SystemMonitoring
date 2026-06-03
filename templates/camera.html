@@ -169,10 +169,17 @@ setInterval(() => {
     const el = document.getElementById('timestamp'); 
     if (el) { 
         const now = new Date();
-        // Convert to UTC+8 (Philippines)
-        const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-        const formatted = phTime.toISOString().slice(0,19).replace('T',' ');
-        el.textContent = formatted + ' PHT';
+        const options = { 
+            timeZone: 'Asia/Manila', 
+            year: 'numeric', 
+            month: '2-digit', 
+            day: '2-digit', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit',
+            hour12: true
+        };
+        el.textContent = now.toLocaleString('en-PH', options);
     } 
 }, 1000);
 </script> 
