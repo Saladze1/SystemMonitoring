@@ -22,7 +22,7 @@
         <tr>
             <td style="color: #94a3b8; font-size: 0.875rem;">
                 {# We cast the timezone here to ensure it displays as Asia/Manila #}
-                {{ log.timestamp.astimezone(None).strftime('%Y-%m-%d %H:%M:%S') }}
+                {{ log.timestamp.astimezone(pytz.timezone('Asia/Manila')).strftime('%Y-%m-%d %H:%M:%S') }}
             </td>
             <td>{{ log.ip_address or 'N/A' }}</td>
             <td>{{ log.username or 'Anonymous' }}</td>
