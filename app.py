@@ -220,6 +220,11 @@ def logs():
     page = request.args.get("page", 1, type=int)
     per_page = 20
     pagination = AccessLog.query.order_by(AccessLog.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    # Pre‑convert timestamps to PHT
+    for log in pagination.items:
+        log.display_time = log.timestamp.astimezone(PH_TZ).strftime('%Y-%m-%d %H:%M:%S')
+    
     return render_template("logs.html", pagination=pagination)
 
 @app.route("/users")
