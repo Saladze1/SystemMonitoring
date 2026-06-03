@@ -1,4 +1,9 @@
-<h1>🔒 Security Access Logs</h1>
+{% extends "base.html" %}
+
+{% block title %}Security Logs{% endblock %}
+
+{% block content %}
+ <h1>🔒 Security Access Logs</h1>
 
 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center;">
     <!-- Filter buttons -->
@@ -59,3 +64,4 @@
 {% else %}
 <p style="color: #94a3b8;">No logs found for this filter.</p>
 {% endif %}
+{% endblock %}
