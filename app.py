@@ -218,15 +218,42 @@ def camera():
 @admin_required
 def logs():
     page = request.args.get("page", 1, type=int)
+    filter_type = request.args.get("filter", "all")  # all, today, week
     per_page = 20
-    pagination = AccessLog.query.order_by(AccessLog.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
     
-    # Pre‑convert timestamps to PHT
+    query = AccessLog.query
+    now_ph = get_ph_now()
+    
+    if filter_type == "today":
+        # Start of today in PHT (00:00:00)
+        start = datetime(now_ph.year, now_ph.month, now_ph.day, tzinfo=PH_TZ)
+        query = query.filter(AccessLog.timestamp >= start)
+    elif filter_type == "week":
+        # Last 7 days from now (including today)
+        week_ago = now_ph - timedelta(days=7)
+        query = query.filter(AccessLog.timestamp >= week_ago)
+    # else "all" – no filter
+    
+    pagination = query.order_by(AccessLog.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    # Pre‑convert timestamps to PHT 12‑hour format
     for log in pagination.items:
         log.display_time = log.timestamp.astimezone(PH_TZ).strftime('%Y-%m-%d %I:%M:%S %p')
     
-    return render_template("logs.html", pagination=pagination)
+    return render_template("logs.html", pagination=pagination, filter_type=filter_type)
 
+@app.route("/logs/delete_old", methods=["POST"])
+@admin_required
+def delete_old_logs():
+    # Delete logs older than 7 days
+    now_ph = get_ph_now()
+    cutoff = now_ph - timedelta(days=7)
+    deleted_count = AccessLog.query.filter(AccessLog.timestamp < cutoff).delete()
+    db.session.commit()
+    log_action("delete_old_logs", session.get("username"), True, f"Deleted {deleted_count} logs older than 7 days")
+    flash(f"Deleted {deleted_count} old log entries.", "success")
+    return redirect(url_for("logs"))
+    
 @app.route("/users")
 @admin_required
 def users():
