@@ -1,54 +1,57 @@
 {% extends "base.html" %}
 
-{% block title %}Security Logs{% endblock %}
+{% block title %}User Management{% endblock %}
 
 {% block content %}
-<h1>🔒 Security Access Logs</h1>
+<h1>👥 User Management</h1>
 
-{% if pagination %}
+<!-- Add user form -->
+<div style="background: #1e293b; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem;">
+    <h3>Add New User</h3>
+    <form method="POST" action="{{ url_for('add_user') }}" style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="username" placeholder="Username" required>
+        <input type="password" name="password" placeholder="Password" required>
+        <select name="role">
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
+        </select>
+        <button type="submit" class="btn">Add User</button>
+    </form>
+</div>
+
+<!-- Users table -->
 <table>
     <thead>
-        <tr>
-            <th>Time</th>
-            <th>IP Address</th>
-            <th>Username</th>
-            <th>Action</th>
-            <th>Status</th>
-            <th>Details</th>
-        </tr>
+        <tr><th>Username</th><th>Role</th><th>Last Seen</th><th>Actions</th></tr>
     </thead>
     <tbody>
-        {% for log in pagination.items %}
+        {% for user in users %}
         <tr>
-            <td style="color: #94a3b8; font-size: 0.875rem;">
-                {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+            <td>{{ user.username }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('update_role', user_id=user.id) }}" style="display: inline-flex; gap: 0.5rem;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <select name="role">
+                        <option value="viewer" {% if user.role == 'viewer' %}selected{% endif %}>Viewer</option>
+                        <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+                    </select>
+                    <button type="submit" class="btn btn-small">Update</button>
+                </form>
             </td>
-            <td>{{ log.ip_address or 'N/A' }}</td>
-            <td>{{ log.username or 'Anonymous' }}</td>
-            <td>{{ log.action }}</td>
-            <td class="{% if log.success %}success{% else %}fail{% endif %}">
-                {% if log.success %}✅ SUCCESS{% else %}❌ FAILED{% endif %}
+            <td>{{ user.last_seen.strftime('%Y-%m-%d %H:%M') if user.last_seen else 'Never' }}</td>
+            <td>
+                {% if user.username != session.username %}
+                <form method="POST" action="{{ url_for('delete_user', user_id=user.id) }}" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Delete {{ user.username }}?')">Delete</button>
+                </form>
+                {% else %}
+                <span style="color: #64748b;">(you)</span>
+                {% endif %}
             </td>
-            <td>{{ log.details or '-' }}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
-
-<div style="display:flex; justify-content:space-between; align-items:center; margin-top:1.5rem; color:#94a3b8;">
-    {% if pagination.has_prev %}
-        <a href="{{ url_for('logs', page=pagination.prev_num) }}" class="btn">← Previous</a>
-    {% else %}
-        <span></span>
-    {% endif %}
-    <span>Page {{ pagination.page }} of {{ pagination.pages }} ({{ pagination.total }} total)</span>
-    {% if pagination.has_next %}
-        <a href="{{ url_for('logs', page=pagination.next_num) }}" class="btn">Next →</a>
-    {% else %}
-        <span></span>
-    {% endif %}
-</div>
-{% else %}
-<p style="color: #94a3b8;">Could not load logs.</p>
-{% endif %}
 {% endblock %}
