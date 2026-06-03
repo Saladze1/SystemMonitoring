@@ -4,13 +4,21 @@
 
 {% block extra_css %}
 <style>
+    .container {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    }
+    
     .login-page-wrapper {
         display: flex;
         justify-content: center;
         align-items: center;
         min-height: 100vh;
         background: #0f172a;
-        margin: -2rem;  /* counteract .container padding */
+        margin: 0;   /* remove negative margin */
+        width: 100%;
+    }
     }
     .login-box {
         background: #16213e;
