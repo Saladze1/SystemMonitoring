@@ -337,19 +337,24 @@ def video_feed():
     def generate():
         global latest_frame
         while True:
-            with frame_lock:
-                frame = latest_frame
-            if frame is not None:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            else:
-                # placeholder black frame
+            try:
+                with frame_lock:
+                    frame = latest_frame
+                if frame is not None:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                else:
+                    # placeholder black frame
+                    placeholder = cv2.imencode('.jpg', np.zeros((480,640,3), np.uint8))[1].tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
+            except Exception as e:
+                logger.error(f"Video feed error: {e}")
+                # send a placeholder to keep the stream alive
                 placeholder = cv2.imencode('.jpg', np.zeros((480,640,3), np.uint8))[1].tobytes()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
             time.sleep(0.033)
-
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route("/users")
 @admin_required
