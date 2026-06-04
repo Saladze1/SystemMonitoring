@@ -299,6 +299,7 @@ def ingest_video(ws):
 
 # Endpoint for the agent to push device scans
 @app.route('/ingest/devices', methods=['POST'])
+@csrf.exempt
 def ingest_devices():
     key = request.headers.get('X-Ingest-Key')
     if key != os.environ.get("INGEST_KEY"):
