@@ -136,10 +136,12 @@ def log_action(action, username=None, success=False, details=""):
 
 @app.before_request
 def validate_session():
-    # Skip session check for WebSocket endpoint and other public routes
-    if request.endpoint in {"login", "static", "logout", "not_found"}:
-        return
+    # Skip for WebSocket endpoint (by path, because endpoint is None for sock routes)
     if request.path == "/ws/ingest":
+        return
+    
+    public_routes = {"login", "static", "logout", "not_found"}
+    if request.endpoint in public_routes:
         return
     
     if "user_id" not in session or "session_token" not in session:
