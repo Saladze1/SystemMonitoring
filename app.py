@@ -290,16 +290,16 @@ def ingest_video(ws):
     except Exception:
         return
 
-    while True:
+       while True:
         try:
             frame_bytes = ws.receive()
             if not frame_bytes:
                 break
             with frame_lock:
                 latest_frame = frame_bytes
-        except Exception:
+        except Exception as e:
+            logger.error(f"WebSocket receive error: {e}")
             break
-    ws.close()
 
 # Endpoint for the agent to push device scans
 @app.route('/ingest/devices', methods=['POST'])
