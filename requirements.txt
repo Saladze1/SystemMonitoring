@@ -11,3 +11,5 @@ Flask-Migrate==4.0.7
 pytz
 flask-sock
 opencv-python-headless
+flask-sock
+eventlet
