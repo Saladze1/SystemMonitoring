@@ -107,6 +107,7 @@
         <div class="nav-links">
             <a href="{{ url_for('camera') }}" {% if request.endpoint == 'camera' %}class="active"{% endif %}>Camera</a>
             {% if session.role == 'admin' %}
+            <a href="{{ url_for('devices') }}" {% if request.endpoint == 'devices' %}class="active"{% endif %}>Network Devices</a>
             <a href="{{ url_for('logs') }}" {% if request.endpoint == 'logs' %}class="active"{% endif %}>Logs</a>
             <a href="{{ url_for('users') }}" {% if request.endpoint == 'users' %}class="active"{% endif %}>User Management</a>
             {% endif %}
