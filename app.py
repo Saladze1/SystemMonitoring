@@ -17,11 +17,19 @@ from flask_wtf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text, inspect as sa_inspect
+from flask_sock import Sock
+import threading
+import cv2
+import numpy as np
+from collections import deque
+import json
+
 
 # ── Logging & Timezone ───────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 PH_TZ = pytz.timezone("Asia/Manila")
+sock = Sock(app)
 
 def get_ph_now():
     return datetime.now(PH_TZ)
@@ -41,6 +49,9 @@ app.config.update(
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
     WTF_CSRF_TIME_LIMIT=3600,
 )
+# Latest frame (JPEG bytes) and a lock for thread safety
+latest_frame = None
+frame_lock = threading.Lock()
 
 db = SQLAlchemy(app)
 csrf = CSRFProtect(app)
@@ -74,6 +85,18 @@ class AccessLog(db.Model):
     action = db.Column(db.String(50))
     success = db.Column(db.Boolean)
     details = db.Column(db.Text)
+
+class NetworkDevice(db.Model):
+    __tablename__ = "network_device"
+    id = db.Column(db.Integer, primary_key=True)
+    ip = db.Column(db.String(45), nullable=False)
+    mac = db.Column(db.String(17))
+    hostname = db.Column(db.String(255))
+    vendor = db.Column(db.String(255))
+    open_ports = db.Column(db.Text)   # JSON list
+    os_name = db.Column(db.String(255))
+    last_seen = db.Column(db.DateTime, default=get_ph_now)
+
 
 # =======================
 # Helpers & Hooks
@@ -253,7 +276,83 @@ def delete_old_logs():
     log_action("delete_old_logs", session.get("username"), True, f"Deleted {deleted_count} logs older than 7 days")
     flash(f"Deleted {deleted_count} old log entries.", "success")
     return redirect(url_for("logs"))
-    
+@sock.route('/ws/ingest')
+def ingest_video(ws):
+    """Accepts binary JPEG frames from the local agent."""
+    global latest_frame
+    # Authenticate: first message is the INGEST_KEY
+    try:
+        key = ws.receive()
+        if key != os.environ.get("INGEST_KEY"):
+            ws.send("INVALID KEY")
+            ws.close()
+            return
+        ws.send("OK")
+    except Exception:
+        return
+
+    # Now receive frames
+    while True:
+        try:
+            frame_bytes = ws.receive()
+            if not frame_bytes:
+                break
+            # Store the latest frame
+            with frame_lock:
+                latest_frame = frame_bytes
+        except Exception:
+            break
+    ws.close()
+
+@app.route('/ingest/devices', methods=['POST'])
+def ingest_devices():
+    """Receives device scan results from the local agent."""
+    key = request.headers.get('X-Ingest-Key')
+    if key != os.environ.get("INGEST_KEY"):
+        return "Unauthorized", 401
+
+    data = request.get_json()
+    devices = data.get('devices', [])
+
+    # Replace old entries with fresh scan
+    NetworkDevice.query.delete()
+    for d in devices:
+        device = NetworkDevice(
+            ip=d['ip'],
+            mac=d.get('mac', 'N/A'),
+            hostname=d.get('hostname', ''),
+            vendor=d.get('vendor', 'Unknown'),
+            open_ports=json.dumps(d.get('open_ports', [])),
+            os_name=d.get('os', 'Unknown'),
+            last_seen=get_ph_now()
+        )
+        db.session.add(device)
+    db.session.commit()
+    log_action("device_scan", "agent", True, f"Updated {len(devices)} devices")
+    return "OK", 200
+
+@app.route('/video_feed')
+def video_feed():
+    """MJPEG streaming endpoint for browsers."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    def generate():
+        global latest_frame
+        while True:
+            with frame_lock:
+                frame = latest_frame
+            if frame is not None:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            else:
+                # send a placeholder image if no frame yet
+                placeholder = cv2.imencode('.jpg', np.zeros((480,640,3), np.uint8))[1].tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
+            time.sleep(0.033)  # ~30 fps
+
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 @app.route("/users")
 @admin_required
 def users():
@@ -349,6 +448,12 @@ def change_password():
         return redirect(url_for("login"))
     
     return render_template("change_password.html")
+
+@app.route('/devices')
+@admin_required
+def devices():
+    all_devices = NetworkDevice.query.order_by(NetworkDevice.ip).all()
+    return render_template('devices.html', devices=all_devices)
 
 # =======================
 # Error handlers
