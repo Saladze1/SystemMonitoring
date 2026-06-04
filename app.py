@@ -290,7 +290,7 @@ def ingest_video(ws):
     except Exception:
         return
 
-       while True:
+           while True:
         try:
             frame_bytes = ws.receive()
             if not frame_bytes:
@@ -334,7 +334,7 @@ def video_feed():
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
-    def generate():
+        def generate():
         global latest_frame
         while True:
             try:
@@ -344,18 +344,15 @@ def video_feed():
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 else:
-                    # placeholder black frame
                     placeholder = cv2.imencode('.jpg', np.zeros((480,640,3), np.uint8))[1].tobytes()
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
             except Exception as e:
                 logger.error(f"Video feed error: {e}")
-                # send a placeholder to keep the stream alive
                 placeholder = cv2.imencode('.jpg', np.zeros((480,640,3), np.uint8))[1].tobytes()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
             time.sleep(0.033)
-
 @app.route("/users")
 @admin_required
 def users():
