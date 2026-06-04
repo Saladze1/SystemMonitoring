@@ -1,186 +1,123 @@
-{% extends "base.html" %} 
-{% block title %}Camera Feed - Security System{% endblock %} 
+{% extends "base.html" %}
 
-{% block extra_css %} 
-<style> 
-.camera-container { 
-    background: #1e293b; 
-    border-radius: 0.75rem; 
-    border: 1px solid #334155; 
-    overflow: hidden; 
-} 
-.camera-header { 
-    padding: 1rem 1.5rem; 
-    background: #0f172a; 
-    border-bottom: 1px solid #334155; 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    flex-wrap: wrap; 
-    gap: 1rem; 
-} 
-.camera-status { 
-    display: flex; 
-    align-items: center; 
-    gap: 0.5rem; 
-} 
-.status-dot { 
-    width: 8px; 
-    height: 8px; 
-    background: #94a3b8; 
-    border-radius: 50%; 
-} 
-.camera-feed { 
-    aspect-ratio: 16/9; 
-    background: #000; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    position: relative; 
-    overflow: hidden; 
-    min-height: 300px; 
-} 
-.camera-feed video { 
-    width: 100%; 
-    height: 100%; 
-    object-fit: cover;
-}
-.camera-overlay {
-    position: absolute;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1rem;
-    color: #94a3b8;
-    text-align: center;
-    padding: 1rem;
-}
-.ctrl-btn {
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 0.5rem;
-    font-size: 1rem;
-    cursor: pointer;
-    color: white;
-}
-.start-btn { background: #3b82f6; }
-.start-btn:hover { background: #2563eb; }
-.stop-btn { background: #ef4444; }
-.stop-btn:hover { background: #dc2626; }
+{% block title %}Camera Feed - Security System{% endblock %}
 
-.camera-info { 
-    padding: 1rem 1.5rem; 
-    display: flex; 
-    justify-content: space-between; 
-    color: #94a3b8; 
-    font-size: 0.875rem; 
-    flex-wrap: wrap; 
-    gap: 0.5rem; 
-} 
-</style> 
-{% endblock %} 
+{% block extra_css %}
+<style>
+    .camera-container {
+        background: #1e293b;
+        border-radius: 0.75rem;
+        border: 1px solid #334155;
+        overflow: hidden;
+    }
+    .camera-header {
+        padding: 1rem 1.5rem;
+        background: #0f172a;
+        border-bottom: 1px solid #334155;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    .camera-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        background: #94a3b8;
+        border-radius: 50%;
+    }
+    .camera-feed {
+        aspect-ratio: 16/9;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        min-height: 300px;
+    }
+    .camera-feed img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .camera-info {
+        padding: 1rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        color: #94a3b8;
+        font-size: 0.875rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+</style>
+{% endblock %}
 
-{% block content %} 
-<div class="camera-container"> 
-    <div class="camera-header"> 
-        <h2>Live Camera Feed</h2> 
-        <div class="camera-status"> 
-            <div class="status-dot" id="statusDot"></div> 
-            <span style="color: #94a3b8; font-size: 0.875rem;" id="statusText">READY</span> 
-        </div> 
-    </div> 
-    
-    <div class="camera-feed" id="feedContainer"> 
-        <video id="cameraVideo" autoplay playsinline muted></video>
-        <div class="camera-overlay" id="overlay">
-            <p id="overlayMsg">Click the button to access camera</p>
-            <button class="ctrl-btn start-btn" id="actionBtn">▶ Start Camera</button>
+{% block content %}
+<div class="camera-container">
+    <div class="camera-header">
+        <h2>Live Camera Feed</h2>
+        <div class="camera-status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">WAITING FOR AGENT</span>
         </div>
-    </div> 
-    
-    <div class="camera-info"> 
-        <span>Camera 1 - Main Entrance</span> 
-        <span id="timestamp">Waiting for feed...</span> 
-    </div> 
-</div> 
-{% endblock %} 
+    </div>
+    <div class="camera-feed">
+        <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Camera feed">
+    </div>
+    <div class="camera-info">
+        <span>Camera 1 - Main Entrance (RTSP)</span>
+        <span id="timestamp">Connecting...</span>
+    </div>
+</div>
+{% endblock %}
 
-{% block extra_js %} 
-<script> 
-const video = document.getElementById('cameraVideo');
-const statusDot = document.getElementById('statusDot');
-const statusText = document.getElementById('statusText');
-const overlay = document.getElementById('overlay');
-const actionBtn = document.getElementById('actionBtn');
+{% block extra_js %}
+<script>
+    const img = document.getElementById('videoFeed');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const timestampSpan = document.getElementById('timestamp');
 
-let currentStream = null;
-
-function setStatus(color, text) {
-    statusDot.style.background = color;
-    statusText.textContent = text;
-    statusText.style.color = color;
-}
-
-function startCamera() {
-    setStatus('#f59e0b', 'CONNECTING...');
-    
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        .then(stream => {
-            currentStream = stream;
-            video.srcObject = stream;
-            overlay.style.display = 'none';
-            setStatus('#22c55e', 'LIVE');
-            
-            actionBtn.textContent = '⏹ Stop Camera';
-            actionBtn.className = 'ctrl-btn stop-btn';
-        })
-        .catch(err => {
-            setStatus('#dc2626', 'OFFLINE');
-            console.error("Camera error:", err);
-            alert("Camera access denied or unavailable.");
-        });
-}
-
-function stopCamera() {
-    if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-        video.srcObject = null;
-        currentStream = null;
-        
-        overlay.style.display = 'flex';
-        setStatus('#94a3b8', 'READY');
-        
-        actionBtn.textContent = '▶ Start Camera';
-        actionBtn.className = 'ctrl-btn start-btn';
+    function updateStatus() {
+        // Simple check: if the image loads, assume live; otherwise show waiting
+        img.onload = () => {
+            statusDot.style.background = '#22c55e';
+            statusText.textContent = 'LIVE';
+            statusText.style.color = '#22c55e';
+        };
+        img.onerror = () => {
+            statusDot.style.background = '#dc2626';
+            statusText.textContent = 'OFFLINE (agent disconnected)';
+            statusText.style.color = '#dc2626';
+        };
+        // Force reload every few seconds to detect reconnect
+        setInterval(() => {
+            const url = img.src.split('?')[0];
+            img.src = url + '?t=' + new Date().getTime();
+        }, 5000);
     }
-}
 
-actionBtn.addEventListener('click', () => {
-    if (currentStream) {
-        stopCamera();
-    } else {
-        startCamera();
-    }
-});
-
-// Update timestamp
-setInterval(() => { 
-    const el = document.getElementById('timestamp'); 
-    if (el) { 
+    // Update timestamp in PHT
+    setInterval(() => {
         const now = new Date();
-        const options = { 
-            timeZone: 'Asia/Manila', 
-            year: 'numeric', 
-            month: '2-digit', 
-            day: '2-digit', 
-            hour: '2-digit', 
-            minute: '2-digit', 
+        const options = {
+            timeZone: 'Asia/Manila',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
             second: '2-digit',
             hour12: true
         };
-        el.textContent = now.toLocaleString('en-PH', options);
-    } 
-}, 1000);
-</script> 
+        timestampSpan.textContent = now.toLocaleString('en-PH', options);
+    }, 1000);
+
+    updateStatus();
+</script>
 {% endblock %}
