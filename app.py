@@ -5,31 +5,28 @@ import uuid
 import secrets
 import logging
 import pytz
+import json
+import threading
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import (
-    Flask, render_template, request, redirect, url_for, session, flash, g
+    Flask, render_template, request, redirect, url_for, session, flash, g, Response
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf import CSRFProtect
+from flask_sock import Sock
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text, inspect as sa_inspect
-from flask_sock import Sock
-import threading
 import cv2
 import numpy as np
-from collections import deque
-import json
-
 
 # ── Logging & Timezone ───────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 PH_TZ = pytz.timezone("Asia/Manila")
-sock = Sock(app)
 
 def get_ph_now():
     return datetime.now(PH_TZ)
@@ -49,6 +46,10 @@ app.config.update(
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
     WTF_CSRF_TIME_LIMIT=3600,
 )
+
+# WebSocket support
+sock = Sock(app)
+
 # Latest frame (JPEG bytes) and a lock for thread safety
 latest_frame = None
 frame_lock = threading.Lock()
@@ -96,7 +97,6 @@ class NetworkDevice(db.Model):
     open_ports = db.Column(db.Text)   # JSON list
     os_name = db.Column(db.String(255))
     last_seen = db.Column(db.DateTime, default=get_ph_now)
-
 
 # =======================
 # Helpers & Hooks
@@ -241,25 +241,21 @@ def camera():
 @admin_required
 def logs():
     page = request.args.get("page", 1, type=int)
-    filter_type = request.args.get("filter", "all")  # all, today, week
+    filter_type = request.args.get("filter", "all")
     per_page = 20
     
     query = AccessLog.query
     now_ph = get_ph_now()
     
     if filter_type == "today":
-        # Start of today in PHT (00:00:00)
         start = datetime(now_ph.year, now_ph.month, now_ph.day, tzinfo=PH_TZ)
         query = query.filter(AccessLog.timestamp >= start)
     elif filter_type == "week":
-        # Last 7 days from now (including today)
         week_ago = now_ph - timedelta(days=7)
         query = query.filter(AccessLog.timestamp >= week_ago)
-    # else "all" – no filter
     
     pagination = query.order_by(AccessLog.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
     
-    # Pre‑convert timestamps to PHT 12‑hour format
     for log in pagination.items:
         log.display_time = log.timestamp.astimezone(PH_TZ).strftime('%Y-%m-%d %I:%M:%S %p')
     
@@ -268,7 +264,6 @@ def logs():
 @app.route("/logs/delete_old", methods=["POST"])
 @admin_required
 def delete_old_logs():
-    # Delete logs older than 7 days
     now_ph = get_ph_now()
     cutoff = now_ph - timedelta(days=7)
     deleted_count = AccessLog.query.filter(AccessLog.timestamp < cutoff).delete()
@@ -276,11 +271,11 @@ def delete_old_logs():
     log_action("delete_old_logs", session.get("username"), True, f"Deleted {deleted_count} logs older than 7 days")
     flash(f"Deleted {deleted_count} old log entries.", "success")
     return redirect(url_for("logs"))
+
+# WebSocket endpoint for the agent
 @sock.route('/ws/ingest')
 def ingest_video(ws):
-    """Accepts binary JPEG frames from the local agent."""
     global latest_frame
-    # Authenticate: first message is the INGEST_KEY
     try:
         key = ws.receive()
         if key != os.environ.get("INGEST_KEY"):
@@ -291,22 +286,20 @@ def ingest_video(ws):
     except Exception:
         return
 
-    # Now receive frames
     while True:
         try:
             frame_bytes = ws.receive()
             if not frame_bytes:
                 break
-            # Store the latest frame
             with frame_lock:
                 latest_frame = frame_bytes
         except Exception:
             break
     ws.close()
 
+# Endpoint for the agent to push device scans
 @app.route('/ingest/devices', methods=['POST'])
 def ingest_devices():
-    """Receives device scan results from the local agent."""
     key = request.headers.get('X-Ingest-Key')
     if key != os.environ.get("INGEST_KEY"):
         return "Unauthorized", 401
@@ -314,7 +307,6 @@ def ingest_devices():
     data = request.get_json()
     devices = data.get('devices', [])
 
-    # Replace old entries with fresh scan
     NetworkDevice.query.delete()
     for d in devices:
         device = NetworkDevice(
@@ -331,9 +323,9 @@ def ingest_devices():
     log_action("device_scan", "agent", True, f"Updated {len(devices)} devices")
     return "OK", 200
 
+# MJPEG stream for browsers
 @app.route('/video_feed')
 def video_feed():
-    """MJPEG streaming endpoint for browsers."""
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
@@ -346,17 +338,17 @@ def video_feed():
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
             else:
-                # send a placeholder image if no frame yet
+                # placeholder black frame
                 placeholder = cv2.imencode('.jpg', np.zeros((480,640,3), np.uint8))[1].tobytes()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
-            time.sleep(0.033)  # ~30 fps
+            time.sleep(0.033)
 
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
 @app.route("/users")
 @admin_required
 def users():
-    # For admin to manage users (list, add, delete, change role)
     all_users = User.query.all()
     return render_template("users.html", users=all_users)
 
@@ -390,7 +382,7 @@ def add_user():
 @admin_required
 def delete_user(user_id):
     user = User.query.get(user_id)
-    if user and user.username != session.get("username"):  # can't delete self
+    if user and user.username != session.get("username"):
         db.session.delete(user)
         db.session.commit()
         log_action("delete_user", session.get("username"), True, f"Deleted user {user.username}")
@@ -439,7 +431,6 @@ def change_password():
             return redirect(url_for("change_password"))
         
         user.password_hash = generate_password_hash(new)
-        # Force re-login after password change
         user.active_session_token = None
         db.session.commit()
         log_action("change_password", user.username, True, "Password changed")
@@ -468,12 +459,11 @@ def ratelimit_exceeded(e):
     return redirect(url_for("login"))
 
 # =======================
-# Database initialization (create tables & admin user)
+# Database initialization
 # =======================
 def init_db():
     with app.app_context():
         db.create_all()
-        # Create admin user if none exists
         if User.query.count() == 0:
             admin = User(
                 username="admin",
