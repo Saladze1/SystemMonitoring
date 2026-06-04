@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Network Devices{% endblock %}
+
+{% block content %}
+<h1>📡 Network Devices (Last Scan)</h1>
+
+{% if devices %}
+<table>
+    <thead>
+        <tr><th>IP Address</th><th>MAC</th><th>Hostname</th><th>Vendor</th><th>Open Ports</th><th>OS</th><th>Last Seen</th></tr>
+    </thead>
+    <tbody>
+        {% for d in devices %}
+        <tr>
+            <td>{{ d.ip }}</td>
+            <td>{{ d.mac }}</td>
+            <td>{{ d.hostname }}</td>
+            <td>{{ d.vendor }}</td>
+            <td>{{ d.open_ports }}</td>
+            <td>{{ d.os_name }}</td>
+            <td>{{ d.last_seen.strftime('%Y-%m-%d %I:%M:%S %p') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No devices discovered yet. Make sure the local agent is running and has scanned the network.</p>
+{% endif %}
+{% endblock %}
