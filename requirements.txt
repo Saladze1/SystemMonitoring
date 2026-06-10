@@ -11,4 +11,4 @@ Flask-Migrate==4.0.7
 pytz
 opencv-python-headless
 flask-sock
-eventlet
+gevent
