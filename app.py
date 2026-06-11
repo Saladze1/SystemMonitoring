@@ -63,6 +63,29 @@ else:
     # Fallback to in-memory (not ideal for production)
     app.config["RATELIMIT_STORAGE_URL"] = "memory://"
 
+Talisman(
+    app,
+    force_https=True,                    # Enforce HTTPS everywhere
+    force_https_permanent=False,         # Use 302 redirect (temporary) – change to True after testing
+    frame_options='DENY',                # Prevents clickjacking (best)
+    strict_transport_security=True,      # Enables HSTS
+    strict_transport_security_max_age=31536000,  # 1 year
+    strict_transport_security_include_subdomains=True,
+    content_security_policy={
+        'default-src': "'self'",
+        'script-src': "'self' 'unsafe-inline'",   # Allows inline JS (your status checker)
+        'style-src': "'self' 'unsafe-inline'",    # Allows inline CSS (your base styles)
+        'img-src': "'self' data: blob:",          # Allows MJPEG stream and placeholders
+        'connect-src': "'self' wss:",             # Allows WebSocket (for the agent)
+        'frame-ancestors': "'none'",              # Same as frame_options='DENY'
+    },
+    feature_policy={                     # Optional: restrict browser features
+        'camera': "'none'",
+        'microphone': "'none'",
+        'geolocation': "'none'"
+    }
+)
+
 db = SQLAlchemy(app)
 csrf = CSRFProtect(app)
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
