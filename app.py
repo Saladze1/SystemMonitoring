@@ -22,6 +22,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy import text, inspect as sa_inspect
 import cv2
 import numpy as np
+from flask_talisman import Talisman
 
 # ── Logging & Timezone ───────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
