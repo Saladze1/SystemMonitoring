@@ -351,22 +351,23 @@ def ingest_devices():
     if key != os.environ.get("INGEST_KEY"):
         return "Unauthorized", 401
 
-    data = request.get_json()
     devices = data.get('devices', [])
+NetworkDevice.query.delete()
 
-    NetworkDevice.query.delete()
-    for d in devices:
-        device = NetworkDevice(
-            ip=d['ip'],
-            mac=d.get('mac', 'N/A'),
-            hostname=d.get('hostname', ''),
-            vendor=d.get('vendor', 'Unknown'),
-            open_ports=json.dumps(d.get('open_ports', [])),
-            os_name=d.get('os', 'Unknown'),
-            last_seen=get_ph_now()
-        )
-        db.session.add(device)
-    db.session.commit()
+ALLOWED_TAGS = []   # strip all HTML, keep only text
+
+for d in devices:
+    device = NetworkDevice(
+        ip=d['ip'],
+        mac=d.get('mac', 'N/A'),
+        hostname=bleach.clean(d.get('hostname', ''), tags=ALLOWED_TAGS),
+        vendor=bleach.clean(d.get('vendor', 'Unknown'), tags=ALLOWED_TAGS),
+        open_ports=json.dumps([p for p in d.get('open_ports', []) if isinstance(p, int)]),
+        os_name=bleach.clean(d.get('os', 'Unknown'), tags=ALLOWED_TAGS),
+        last_seen=get_ph_now()
+    )
+    db.session.add(device)
+db.session.commit()
     log_action("device_scan", "agent", True, f"Updated {len(devices)} devices")
     return "OK", 200
 
