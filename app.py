@@ -282,12 +282,19 @@ def ingest_video(ws):
     global latest_frame
     try:
         key = ws.receive()
-        if key != os.environ.get("INGEST_KEY"):
+        expected = os.environ.get("INGEST_KEY", "")
+        
+        # Debug prints – will appear in Railway logs
+        print(f"[SERVER] Received key repr: {repr(key)}")
+        print(f"[SERVER] Expected key repr: {repr(expected)}")
+        
+        if key != expected:
             ws.send("INVALID KEY")
             ws.close()
             return
         ws.send("OK")
-    except Exception:
+    except Exception as e:
+        logger.error(f"WebSocket handshake error: {e}")
         return
 
     while True:
