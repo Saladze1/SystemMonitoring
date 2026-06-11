@@ -366,7 +366,7 @@ for d in devices:
         os_name=bleach.clean(d.get('os', 'Unknown'), tags=ALLOWED_TAGS),
         last_seen=get_ph_now()
     )
-    db.session.add(device)
+        db.session.add(device)
     db.session.commit()
     log_action("device_scan", "agent", True, f"Updated {len(devices)} devices")
     return "OK", 200
