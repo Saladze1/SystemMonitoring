@@ -54,6 +54,15 @@ sock = Sock(app)
 latest_frame = None
 frame_lock = threading.Lock()
 
+# 2. Redis Configuration for Rate Limiting
+redis_url = os.environ.get("REDIS_URL")
+if redis_url:
+    app.config["RATELIMIT_STORAGE_URL"] = redis_url
+    app.config["RATELIMIT_STRATEGY"] = "fixed-window" # or "moving-window"
+else:
+    # Fallback to in-memory (not ideal for production)
+    app.config["RATELIMIT_STORAGE_URL"] = "memory://"
+
 db = SQLAlchemy(app)
 csrf = CSRFProtect(app)
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
