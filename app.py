@@ -352,11 +352,11 @@ def ingest_devices():
         return "Unauthorized", 401
 
     devices = data.get('devices', [])
-NetworkDevice.query.delete()
+    NetworkDevice.query.delete()
 
-ALLOWED_TAGS = []   # strip all HTML, keep only text
+    ALLOWED_TAGS = []   # strip all HTML, keep only text
 
-for d in devices:
+    for d in devices:
     device = NetworkDevice(
         ip=d['ip'],
         mac=d.get('mac', 'N/A'),
