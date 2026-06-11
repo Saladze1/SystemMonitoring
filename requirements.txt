@@ -10,6 +10,6 @@ WTForms==3.1.2
 Flask-Migrate==4.0.7
 pytz
 opencv-python-headless
-flask-sock
+flask-sock==0.7.0
+gevent==24.2.1
 gevent-websocket==0.10.1
-flask-talisman==1.1.0
