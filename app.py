@@ -345,30 +345,36 @@ def ingest_video(ws):
 
 # Endpoint for the agent to push device scans
 @app.route('/ingest/devices', methods=['POST'])
+@limiter.limit("5 per minute")   # optional rate limiting
 @csrf.exempt
 def ingest_devices():
     key = request.headers.get('X-Ingest-Key')
     if key != os.environ.get("INGEST_KEY"):
         return "Unauthorized", 401
 
+    data = request.get_json()
     devices = data.get('devices', [])
+
+    # Delete old records
     NetworkDevice.query.delete()
 
-    ALLOWED_TAGS = []   # strip all HTML, keep only text
+    ALLOWED_TAGS = []   # strip all HTML
 
     for d in devices:
-    device = NetworkDevice(
-        ip=d['ip'],
-        mac=d.get('mac', 'N/A'),
-        hostname=bleach.clean(d.get('hostname', ''), tags=ALLOWED_TAGS),
-        vendor=bleach.clean(d.get('vendor', 'Unknown'), tags=ALLOWED_TAGS),
-        open_ports=json.dumps([p for p in d.get('open_ports', []) if isinstance(p, int)]),
-        os_name=bleach.clean(d.get('os', 'Unknown'), tags=ALLOWED_TAGS),
-        last_seen=get_ph_now()
-    )
+        device = NetworkDevice(
+            ip=d['ip'],
+            mac=d.get('mac', 'N/A'),
+            hostname=bleach.clean(d.get('hostname', ''), tags=ALLOWED_TAGS),
+            vendor=bleach.clean(d.get('vendor', 'Unknown'), tags=ALLOWED_TAGS),
+            open_ports=json.dumps([p for p in d.get('open_ports', []) if isinstance(p, int)]),
+            os_name=bleach.clean(d.get('os', 'Unknown'), tags=ALLOWED_TAGS),
+            last_seen=get_ph_now()
+        )
         db.session.add(device)
+
     db.session.commit()
     log_action("device_scan", "agent", True, f"Updated {len(devices)} devices")
+    
     return "OK", 200
 
 # MJPEG stream for browsers
