@@ -367,7 +367,7 @@ for d in devices:
         last_seen=get_ph_now()
     )
     db.session.add(device)
-db.session.commit()
+    db.session.commit()
     log_action("device_scan", "agent", True, f"Updated {len(devices)} devices")
     return "OK", 200
 
